@@ -446,6 +446,10 @@ PrefabInstance:
       propertyPath: m_LocalRotation.z
       value: -0
       objectReference: {fileID: 0}
+    - target: {fileID: 2300006, guid: b544816461f324e56a39767fdeb5b114, type: 3}
+      propertyPath: m_Enabled
+      value: 1
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: b544816461f324e56a39767fdeb5b114, type: 3}
 --- !u!1 &282840810
@@ -5748,8 +5752,8 @@ MonoBehaviour:
   randomThrowAmount: 0
   rotationMin: 0
   rotationMax: 0
-  DestroyFallenBoats: 0
-  SpawnedBoats: []
+  DestroyFallen: 0
+  SpawnedObjects: []
 --- !u!4 &747389648
 Transform:
   m_ObjectHideFlags: 0
@@ -5910,6 +5914,11 @@ PrefabInstance:
       propertyPath: m_LocalRotation.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 64961343234218122, guid: b9b0e5979fdc6b74a863b07b88e5d27d,
+        type: 3}
+      propertyPath: m_IsTrigger
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: b9b0e5979fdc6b74a863b07b88e5d27d, type: 3}
 --- !u!1 &934374042
@@ -6009,6 +6018,25 @@ Transform:
   m_Father: {fileID: 474211500}
   m_RootOrder: 8
   m_LocalEulerAnglesHint: {x: 0, y: -90.00001, z: 0}
+--- !u!1 &942719333 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 100000, guid: b544816461f324e56a39767fdeb5b114,
+    type: 3}
+  m_PrefabInstance: {fileID: 252875990}
+  m_PrefabAsset: {fileID: 0}
+--- !u!65 &942719338
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 942719333}
+  m_Material: {fileID: 0}
+  m_IsTrigger: 0
+  m_Enabled: 0
+  serializedVersion: 2
+  m_Size: {x: 100, y: 6.123235e-15, z: 100.000015}
+  m_Center: {x: 0, y: 6.352747e-22, z: -0.000009536743}
 --- !u!850595691 &972239191
 LightingSettings:
   m_ObjectHideFlags: 0
@@ -6156,6 +6184,25 @@ Skybox:
   m_GameObject: {fileID: 1004615762}
   m_Enabled: 1
   m_CustomSkybox: {fileID: 0}
+--- !u!1 &1104563115 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 100014, guid: b544816461f324e56a39767fdeb5b114,
+    type: 3}
+  m_PrefabInstance: {fileID: 252875990}
+  m_PrefabAsset: {fileID: 0}
+--- !u!65 &1104563120
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1104563115}
+  m_Material: {fileID: 0}
+  m_IsTrigger: 0
+  m_Enabled: 0
+  serializedVersion: 2
+  m_Size: {x: 100, y: 6.123235e-15, z: 100.000015}
+  m_Center: {x: 0, y: 6.352747e-22, z: -0.000009536743}
 --- !u!1 &1328249926
 GameObject:
   m_ObjectHideFlags: 0
@@ -6191,8 +6238,8 @@ MonoBehaviour:
   randomThrowAmount: 20
   rotationMin: -180
   rotationMax: 180
-  DestroyFallenBoats: 1
-  SpawnedBoats: []
+  DestroyFallen: 1
+  SpawnedObjects: []
 --- !u!4 &1328249928
 Transform:
   m_ObjectHideFlags: 0
@@ -7032,6 +7079,25 @@ Transform:
   m_Father: {fileID: 474211500}
   m_RootOrder: 12
   m_LocalEulerAnglesHint: {x: 0, y: -135, z: 0}
+--- !u!1 &1995153792 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 100004, guid: b544816461f324e56a39767fdeb5b114,
+    type: 3}
+  m_PrefabInstance: {fileID: 252875990}
+  m_PrefabAsset: {fileID: 0}
+--- !u!65 &1995153797
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1995153792}
+  m_Material: {fileID: 0}
+  m_IsTrigger: 0
+  m_Enabled: 0
+  serializedVersion: 2
+  m_Size: {x: 100, y: 6.123235e-15, z: 100.000015}
+  m_Center: {x: 0, y: 6.352747e-22, z: -0.000009536743}
 --- !u!1 &2087781524
 GameObject:
   m_ObjectHideFlags: 0
@@ -7067,8 +7133,8 @@ MonoBehaviour:
   randomThrowAmount: 20
   rotationMin: -180
   rotationMax: 180
-  DestroyFallenBoats: 1
-  SpawnedBoats: []
+  DestroyFallen: 1
+  SpawnedObjects: []
 --- !u!4 &2087781526
 Transform:
   m_ObjectHideFlags: 0
@@ -7159,3 +7225,22 @@ Transform:
   m_Father: {fileID: 474211500}
   m_RootOrder: 3
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &2134386117 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 100002, guid: b544816461f324e56a39767fdeb5b114,
+    type: 3}
+  m_PrefabInstance: {fileID: 252875990}
+  m_PrefabAsset: {fileID: 0}
+--- !u!65 &2134386122
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2134386117}
+  m_Material: {fileID: 0}
+  m_IsTrigger: 0
+  m_Enabled: 0
+  serializedVersion: 2
+  m_Size: {x: 100, y: 6.123235e-15, z: 100.000015}
+  m_Center: {x: 0, y: 6.352747e-22, z: -0.000009536743}

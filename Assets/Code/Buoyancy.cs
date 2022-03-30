@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
+using UnityStandardAssets.Water;
 
 // Cams mostly hack buoyancy
 public class Buoyancy : MonoBehaviour
@@ -48,22 +49,20 @@ public class Buoyancy : MonoBehaviour
     private Task task2;
     private Task task3;
     private Task task4;
+    
+    private int vertsLength;
+    private int normalsCount;
+    private int QuarterSize => normalsCount / 4;
+    private  Vector3[] verts;
+    private Vector3[] normals;
+    private Vector3 worldPosition;
+    private float velocityMagnitude;
+    private float angularVelocityMagnitude;
+    private Vector3 normalWorldPosition;
 
-    // HACK: Sharing memory between instances
-    // I figured, the mesh doesn't need changing and is not unique to multiple instances
-    // that's why I'm using static variables. It would also decrease memory allocation.
-    private static bool loaded = false;
-    private static int vertsLength;
-    private static int normalsCount;
-    private static int QuarterSize => normalsCount / 4;
-    private static Vector3[] verts;
-    private static Vector3[] normals;
-    private static Mesh mesh;
-    private static Vector3 worldPosition;
-    private static float velocityMagnitude;
-    private static float angularVelocityMagnitude;
-    private static Vector3 normalWorldPosition;
-
+    private Vector3[] forces; // Forces per normal to apply in future
+    private Vector3[] torques; // Torques per normal to apply in future
+    
     /// <summary>
     /// The queue of actions to execute on the main thread.
     /// </summary>
@@ -79,26 +78,27 @@ public class Buoyancy : MonoBehaviour
     {
         rb = GetComponent<Rigidbody>();
         _transform = GetComponent<Transform>();
-
-        if (!loaded)
-        {
-            meshFilter = GetComponent<MeshFilter>();
-            mesh = meshFilter.mesh;
-            normalsCount = mesh.normals.Length;
-            vertsLength = mesh.vertices.Length;
-            verts = mesh.vertices;
-            normals = mesh.normals;
-        }
-
-        SetupThreads();
-        CalculateForcesThreadedAsync();
+        meshFilter = GetComponent<MeshFilter>();
+        Mesh mesh = meshFilter.mesh;
+        mesh = meshFilter.mesh;
+        normalsCount = mesh.normals.Length;
+        vertsLength = mesh.vertices.Length;
+        verts = mesh.vertices;
+        normals = mesh.normals;
+        forces = new Vector3[normalsCount];
+        torques = new Vector3[normalsCount];
+        
+        //SetupThreads();
+        //CalculateForcesThreadedAsync();
+        //PreCalculateForces();
     }
 
     void Update()
     {
-        //CalculateForces();
+        CalculateForces();
+        //CalculateForcesBetter();
         //CalculateForcesSync();
-        CalculateForcesThreaded();
+        //CalculateForcesThreaded();
     }
 
     private void FixedUpdate()
@@ -106,10 +106,106 @@ public class Buoyancy : MonoBehaviour
         //CalculateForces();
     }
 
+    private void PreCalculateForces()
+    {
+        Vector3 centerOfMass = Vector3.zero;
+        
+        for (int index = 0; index < normalsCount; index++)
+        {
+            forceAmount = -normals[index] * forceScalar;
+            forcePosition = verts[index];
+            
+            forces[index] = forceAmount;
+            
+            //Torque is the cross product of the distance to center of mass and the force vector.
+            torques[index] = Vector3.Cross(forcePosition - centerOfMass, forceAmount);
+        }
+    }
+
+    // private void OnCollisionStay(Collision collision)
+    // {
+    //     GameObject go = collision.gameObject;
+    //     WaterTile water = go.GetComponent<WaterTile>();
+    //
+    //     if (water != null)
+    //     {
+    //         Vector3 NetForce = Vector3.zero;
+    //         Vector3 NetTorque = Vector3.zero;
+    //         
+    //         // Collided with water so need to lookup 
+    //         for (int index = 0; index < collision.contactCount; index++)
+    //         {
+    //             ContactPoint hitPoint = collision.contacts[index];
+    //
+    //             //Vector3 colliderPosition = hitPoint.thisCollider.ClosestPoint(hitPoint.point);
+    //             //Debug.DrawLine(hitPoint.point, hitPoint.normal, Color.red);
+    //
+    //             forceAmount = -hitPoint.normal * forceScalar;
+    //             forcePosition = hitPoint.point;
+    //                 
+    //             NetForce += forceAmount;
+    //
+    //             //Torque is the cross product of the distance to center of mass and the force vector.
+    //             NetTorque += Vector3.Cross(forcePosition - worldPosition, forceAmount);
+    //         }
+    //
+    //         if (rb != null)
+    //         {
+    //             rb.AddForce(NetForce, ForceMode.Force);
+    //             rb.AddTorque(NetTorque, ForceMode.Force);
+    //         }
+    //     }
+    // }
+
+    private void CalculateForcesBetter()
+    {
+        Vector3 netForce = Vector3.zero;
+        Vector3 netTorque = Vector3.zero;
+        int underwaterVerts = 0;
+        Vector3 vertexPosition;
+        Vector3 worldVertexPos;
+        Vector3 worldPositiion = _transform.position;
+        Quaternion rotation = _transform.rotation;
+
+        float dt = Time.deltaTime;
+        
+        for (int index = 0; index < normalsCount; index++)
+        {
+            vertexPosition = verts[index];
+            worldVertexPos = worldPositiion + (rotation * vertexPosition);
+
+            if (worldVertexPos.y < waterLineHack)
+            {
+                //forceAmount = ((rotation * -normals[index]) * forceScalar) * dt;
+                //forcePosition = worldVertexPos;
+                
+                forceAmount = ((-normals[index]) * forceScalar) * dt;
+                forcePosition = vertexPosition;
+                
+                netForce += forceAmount;
+                //netTorque += Vector3.Cross(forcePosition - worldPositiion, forceAmount);
+                netTorque += Vector3.Cross(forcePosition, forceAmount);
+                
+                underwaterVerts++;
+            }
+        }
+
+        if (underwaterVerts > 0 && rb != null)
+        {
+            // Drag for percentage underwater
+            rb.drag = (underwaterVerts / (float) vertsLength) * dragScalar;
+            rb.angularDrag = (underwaterVerts / (float) vertsLength) * dragScalar;
+        
+            // rb.AddForce(netForce, ForceMode.Force);
+            // rb.AddTorque(netTorque, ForceMode.Force);
+            
+            rb.AddRelativeForce(netForce, ForceMode.Force);
+            rb.AddRelativeTorque(netTorque, ForceMode.Force);
+        }
+    }
+    
     private void CalculateForces()
     {
-        //underwaterVerts = 0;
-
         dt = Time.deltaTime;
 
         worldPosition = _transform.position;
@@ -117,12 +213,14 @@ public class Buoyancy : MonoBehaviour
         velocityMagnitude = rb.velocity.magnitude;
         angularVelocityMagnitude = rb.angularVelocity.magnitude;
 
-        PhysicsResult physicsResult = new PhysicsResult();
-        physicsResult.ClearState();
-
+        //PhysicsResult physicsResult = new PhysicsResult();
+        Vector3 netForce = Vector3.zero;
+        Vector3 netTorque = Vector3.zero;
+        int underwaterVerts = 0;
+        
         for (var index = 0; index < normalsCount; index++)
         {
-            worldVertPos = worldPosition + TransformDirection(transformRotation, verts[index]);
+            worldVertPos = worldPosition + (transformRotation * verts[index]);
 
             if (worldVertPos.y < waterLineHack)
             {
@@ -140,16 +238,20 @@ public class Buoyancy : MonoBehaviour
                     }
                 }
 
-                forceAmount = (TransformDirection(transformRotation, -normals[index]) * forceScalar) * dt;
-                forcePosition = worldPosition + TransformDirection(transformRotation, verts[index]);
+                // forceAmount = ((transformRotation * -normals[index]) * forceScalar) * dt;
+                // forcePosition = worldVertPos;
+                
+                forceAmount = ((-normals[index]) * forceScalar) * dt;
+                forcePosition = verts[index];
 
                 //rb.AddForceAtPosition(forceAmount, forcePosition, ForceMode.Force);
-                physicsResult.NetForce += forceAmount;
+                netForce += forceAmount;
 
                 //Torque is the cross product of the distance to center of mass and the force vector.
-                physicsResult.NetTorque += Vector3.Cross(forcePosition - worldPosition, forceAmount);
+                // netTorque += Vector3.Cross(forcePosition - worldPosition, forceAmount);
+                netTorque += Vector3.Cross(forcePosition, forceAmount);
 
-                physicsResult.UnderwaterVerts++;
+                underwaterVerts++;
             }
 
             // HACK to remove sunken boats
@@ -160,12 +262,18 @@ public class Buoyancy : MonoBehaviour
             }
         }
 
-        // Drag for percentage underwater
-        rb.drag = (physicsResult.UnderwaterVerts / (float) vertsLength) * dragScalar;
-        rb.angularDrag = (physicsResult.UnderwaterVerts / (float) vertsLength) * dragScalar;
+        if (underwaterVerts > 0 && rb != null)
+        {
+            // Drag for percentage underwater
+            rb.drag = (underwaterVerts / (float) vertsLength) * dragScalar;
+            rb.angularDrag = (underwaterVerts / (float) vertsLength) * dragScalar;
 
-        rb.AddForce(physicsResult.NetForce, ForceMode.Force);
-        rb.AddTorque(physicsResult.NetTorque, ForceMode.Force);
+            // rb.AddForce(netForce, ForceMode.Force);
+            // rb.AddTorque(netTorque, ForceMode.Force);
+            
+            rb.AddRelativeForce(netForce, ForceMode.Force);
+            rb.AddRelativeTorque(netTorque, ForceMode.Force);
+        }
     }
 
     private void CalculateForcesThreaded()
