@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -21,6 +23,8 @@ public class Buoyancy : MonoBehaviour
     Vector3 worldVertPos;
 
     // Gerallt
+    public static bool DestroyFallenBoats;
+
     private Rigidbody rb;
     private MeshFilter meshFilter;
     private Transform _transform;
@@ -29,10 +33,29 @@ public class Buoyancy : MonoBehaviour
     private float dt;
     private Quaternion transformRotation;
     private int underwaterVertsCount;
+    //private PhysicsResult physicsResult = new PhysicsResult();
 
+    // THREAD STUFF
+    // HACK: To know which threads have finished.
+    // private bool task1Finished = false;
+    // private bool task2Finished = false;
+    // private bool task3Finished = false;
+    // private bool task4Finished = false;
+
+    private Task<PhysicsResult> singleTask;
+    private List<PhysicsTask> physicsTaskList = new List<PhysicsTask>();
+    private Task task1;
+    private Task task2;
+    private Task task3;
+    private Task task4;
+
+    // HACK: Sharing memory between instances
+    // I figured, the mesh doesn't need changing and is not unique to multiple instances
+    // that's why I'm using static variables. It would also decrease memory allocation.
     private static bool loaded = false;
     private static int vertsLength;
     private static int normalsCount;
+    private static int QuarterSize => normalsCount / 4;
     private static Vector3[] verts;
     private static Vector3[] normals;
     private static Mesh mesh;
@@ -44,13 +67,14 @@ public class Buoyancy : MonoBehaviour
     /// <summary>
     /// The queue of actions to execute on the main thread.
     /// </summary>
-    private static ConcurrentQueue<Action> actionsQueue = new ConcurrentQueue<Action>();
-    
+    private ConcurrentQueue<Action> actionsQueue = new ConcurrentQueue<Action>();
+
     /// <summary>
     /// Queue updates from other threads to the rigidbody.
     /// </summary>
     private ConcurrentQueue<PhysicsResult> bodyUpdatesQueue = new ConcurrentQueue<PhysicsResult>();
-
+    //private BlockingCollection<PhysicsResult> bodyUpdatesQueue = new BlockingCollection<PhysicsResult>(10);
+    
     private void Start()
     {
         rb = GetComponent<Rigidbody>();
@@ -65,13 +89,16 @@ public class Buoyancy : MonoBehaviour
             verts = mesh.vertices;
             normals = mesh.normals;
         }
+
+        SetupThreads();
+        CalculateForcesThreadedAsync();
     }
 
     void Update()
     {
-        CalculateForces();
+        //CalculateForces();
         //CalculateForcesSync();
-        //CalculateForcesThreaded();
+        CalculateForcesThreaded();
     }
 
     private void FixedUpdate()
@@ -91,9 +118,8 @@ public class Buoyancy : MonoBehaviour
         angularVelocityMagnitude = rb.angularVelocity.magnitude;
 
         PhysicsResult physicsResult = new PhysicsResult();
-        physicsResult.NetForce = Vector3.zero;
-        physicsResult.NetTorque = Vector3.zero;
-        
+        physicsResult.ClearState();
+
         for (var index = 0; index < normalsCount; index++)
         {
             worldVertPos = worldPosition + TransformDirection(transformRotation, verts[index]);
@@ -152,9 +178,9 @@ public class Buoyancy : MonoBehaviour
         dt = Time.deltaTime;
 
         underwaterVertsCount = 0;
-        
+
         // Divide the work amongst other threads:
-        CalculateForcesThreadedAsync();
+        //CalculateForcesThreadedAsync();
 
         // Execute any scheduled actions on the main thread.
         if (!actionsQueue.IsEmpty)
@@ -164,50 +190,41 @@ public class Buoyancy : MonoBehaviour
                 action?.Invoke();
             }
         }
-
-        if (!bodyUpdatesQueue.IsEmpty)
+        
+        while (bodyUpdatesQueue.Count > 0)
         {
-            while (bodyUpdatesQueue.TryDequeue(out var physicsResult))
+            //PhysicsResult physicsResult = bodyUpdatesQueue.Take();
+            bodyUpdatesQueue.TryDequeue(out PhysicsResult physicsResult);
+            
+            // Update the current Rigidbody with the forces calculated from other threads: 
+            if (rb != null && physicsResult.UnderwaterVerts > 0)
             {
-                // Update the current Rigidbody with the forces calculated from other threads: 
-                if (rb != null)
-                {
-                    underwaterVertsCount += physicsResult.UnderwaterVerts;
-                    //underwaterVertsCount = physicsResult.UnderwaterVerts;
+                // Append underwater verticies count to be used later for applying drag forces.
+                underwaterVertsCount += physicsResult.UnderwaterVerts;
 
-                    // // Drag for percentage underwater
-                    // rb.drag = ((underwaterVertsCount) / (float) vertsLength) * dragScalar;
-                    // rb.angularDrag = ((underwaterVertsCount) / (float) vertsLength) * dragScalar;
-
-                    
-                    // Apply calculated net forces to rigidbody 
-                    rb.AddForce(physicsResult.NetForce, ForceMode.Force);
-                    rb.AddTorque(physicsResult.NetTorque, ForceMode.Force);
-                }
+                // Apply calculated net forces to rigidbody 
+                rb.AddForce(physicsResult.NetForce, ForceMode.Force);
+                rb.AddTorque(physicsResult.NetTorque, ForceMode.Force);
             }
         }
+        
 
         //HACK: once all threads finish, update drag given updated underwaterVertsCount:
-        if (task1Finished && task2Finished && task3Finished && task4Finished)
+        //if (task1Finished && task2Finished && task3Finished && task4Finished)
+        
+        if (//physicsTaskList.TrueForAll(item=> item.Complete)
+            underwaterVertsCount != 0
+            && rb != null
+            )
         {
-            // Drag for percentage underwater
+            // Apply drag for percentage underwater
             rb.drag = ((underwaterVertsCount) / (float) vertsLength) * dragScalar;
             rb.angularDrag = ((underwaterVertsCount) / (float) vertsLength) * dragScalar;
-            
-            task1Finished = false;
-            task2Finished = false;
-            task3Finished = false;
-            task4Finished = false;
 
             underwaterVertsCount = 0;
         }
     }
 
-    private bool task1Finished = false;
-    private bool task2Finished = false;
-    private bool task3Finished = false;
-    private bool task4Finished = false;
-    
     private void CalculateForcesSync()
     {
         worldPosition = _transform.position;
@@ -230,124 +247,146 @@ public class Buoyancy : MonoBehaviour
         }
     }
 
+    public class PhysicsTask
+    {
+        public readonly object taskLock = new object();
+        public Thread task;
+        
+        //Initialize semaphore, set it to BLOCK
+        public ManualResetEvent sema = new ManualResetEvent(false);
+
+        public int StartIndex;
+        public int EndIndex;
+        //public bool Started = false;
+        //public bool Complete = false;
+    }
+    
+    private void SetupThreads()
+    {
+        // Single task test:
+        singleTask = new Task<PhysicsResult>(() => CalculateForces(0, normalsCount));
+
+        // Multiple task test:
+
+        PhysicsTask physicsTask1 = new PhysicsTask();
+        PhysicsTask physicsTask2 = new PhysicsTask();
+        PhysicsTask physicsTask3 = new PhysicsTask();
+        PhysicsTask physicsTask4 = new PhysicsTask();
+
+        physicsTask1.StartIndex = 0;
+        physicsTask1.EndIndex = QuarterSize;
+        physicsTask2.StartIndex = QuarterSize;
+        physicsTask2.EndIndex = 2 * QuarterSize;
+        physicsTask3.StartIndex = 2 * QuarterSize;
+        physicsTask3.EndIndex = 3 * QuarterSize;
+        physicsTask4.StartIndex = 3 * QuarterSize;
+        physicsTask4.EndIndex = normalsCount;
+        
+        physicsTaskList.Add(physicsTask1);
+        physicsTaskList.Add(physicsTask2);
+        physicsTaskList.Add(physicsTask3);
+        physicsTaskList.Add(physicsTask3);
+    }
+
     private void CalculateForcesTaskSync()
     {
-        var task1 = new Task<PhysicsResult>(() => CalculateForces(0, normalsCount));
-
-        task1.RunSynchronously();
-
-
-        PhysicsResult physicsResult = task1.Result;
-
-        if (rb != null)
+        if (singleTask.Status == TaskStatus.RanToCompletion)
         {
-            int underwaterVertsCount = physicsResult.UnderwaterVerts;
-
-            // Drag for percentage underwater
-            rb.drag = ((underwaterVertsCount) / (float) vertsLength) * dragScalar;
-            rb.angularDrag = ((underwaterVertsCount) / (float) vertsLength) * dragScalar;
-
-            // Apply calculated net forces to rigidbody 
-            rb.AddForce(physicsResult.NetForce, ForceMode.Force);
-            rb.AddTorque(physicsResult.NetTorque, ForceMode.Force);
+            // Reallocate task since C# Tasks can't be reused.
+            singleTask = new Task<PhysicsResult>(() => CalculateForces(0, normalsCount));
         }
+
+        if (singleTask.Status != TaskStatus.Running)
+        {
+            singleTask.RunSynchronously();
+
+            PhysicsResult physicsResult = new PhysicsResult();
+            physicsResult = singleTask.Result;
+
+            if (rb != null)
+            {
+                // Drag for percentage underwater
+                rb.drag = ((physicsResult.UnderwaterVerts) / (float) vertsLength) * dragScalar;
+                rb.angularDrag = ((physicsResult.UnderwaterVerts) / (float) vertsLength) * dragScalar;
+
+                // Apply calculated net forces to rigidbody 
+                rb.AddForce(physicsResult.NetForce, ForceMode.Force);
+                rb.AddTorque(physicsResult.NetTorque, ForceMode.Force);
+            } 
+        }
+    }
+
+    private void ApplyPhysics(PhysicsResult result)
+    {
+        if (bodyUpdatesQueue.Count > 10)
+        {
+            
+        }
+        else
+        {
+            bodyUpdatesQueue.Enqueue(result);
+        }
+        
+        //bodyUpdatesQueue.Add(result);
     }
 
     private void CalculateForcesThreadedAsync()
     {
-        int quarter = normalsCount / 4;
-
-        var task1 = Task.Run(() => CalculateForces(0, quarter))
-            .ContinueWith(task =>
+        for (int i = 0; i < physicsTaskList.Count; i++)
         {
-            PhysicsResult physicsResult = task.Result;
-            
-            bodyUpdatesQueue.Enqueue(physicsResult);
+            PhysicsTask physicsTask = physicsTaskList[i];
 
-            task1Finished = true;
-        });
-        var task2 = Task.Run(() => CalculateForces(quarter, 2 * quarter))
-            .ContinueWith(task =>
+            
+            Action onCompleted = () => 
+            {  
+                //physicsTask.Complete = true;
+                //physicsTask.Started = false;
+            };
+            
+            if (physicsTask.task == null)
             {
-                PhysicsResult physicsResult = task.Result;
-                
-                bodyUpdatesQueue.Enqueue(physicsResult);
-                
-                task2Finished = true;
-            });
-        var task3 = Task.Run(() => CalculateForces(2 * quarter,  3 * quarter))
-            .ContinueWith(task =>
-        {
-            PhysicsResult physicsResult = task.Result;
+                physicsTask.task = new Thread(() =>
+                {
+                    try
+                    {
+                        //physicsTask.sema.Set();
+                        
+                        while (true)
+                        {
+                            Thread.Sleep(10);
+                            
+                            //physicsTask.Complete = false;
+                        
+                            PhysicsResult result = CalculateForces(physicsTask.StartIndex, physicsTask.EndIndex);
+                    
+                            ApplyPhysics(result);
+                            
+                            //physicsTask.Complete = true;
+                        }
+                    }
+                    finally
+                    {
+                        onCompleted();
+                    }
+                });
+            }
 
-            bodyUpdatesQueue.Enqueue(physicsResult);
-            
-            task3Finished = true;
-        });
-        var task4 = Task.Run(() => CalculateForces(3 * quarter, normalsCount))
-            .ContinueWith(task =>
-        {
-            PhysicsResult physicsResult = task.Result;
-            
-            bodyUpdatesQueue.Enqueue(physicsResult);
-            
-            task4Finished = true;
-        });
-
-        // var task1 = new Task<PhysicsResult>(() => CalculateForces(0, quarter));
-        // var task2 = new Task<PhysicsResult>(() => CalculateForces(quarter, 2 * quarter));
-        // var task3 = new Task<PhysicsResult>(() => CalculateForces(2 * quarter, 3 * quarter));
-        // var task4 = new Task<PhysicsResult>(() => CalculateForces(3 * quarter, normalsCount));
-
-        // task1.RunSynchronously();
-        // task2.RunSynchronously();
-        // task3.RunSynchronously();
-        // task4.RunSynchronously();
-        
-        // Task.WaitAll(task1, task2, task3, task4);
-        //
-        // PhysicsResult physicsResult = task1.Result;
-        // PhysicsResult physicsResult2 = task2.Result;
-        // PhysicsResult physicsResult3 = task3.Result;
-        // PhysicsResult physicsResult4 = task4.Result;
-        //
-        // if (rb != null)
-        // {
-        //     int underwaterVertsCount = physicsResult.UnderwaterVerts
-        //         + physicsResult2.UnderwaterVerts
-        //         + physicsResult3.UnderwaterVerts
-        //         + physicsResult4.UnderwaterVerts
-        //         ;
-        //
-        //     // Drag for percentage underwater
-        //     rb.drag = ((underwaterVertsCount) / (float) vertsLength) * dragScalar;
-        //     rb.angularDrag = ((underwaterVertsCount) / (float) vertsLength) * dragScalar;
-        //
-        //     // Apply calculated net forces to rigidbody 
-        //     rb.AddForce(physicsResult.NetForce, ForceMode.Force);
-        //     rb.AddTorque(physicsResult.NetTorque, ForceMode.Force);
-        //
-        //     rb.AddForce(physicsResult2.NetForce, ForceMode.Force);
-        //     rb.AddTorque(physicsResult2.NetTorque, ForceMode.Force);
-        //     
-        //     rb.AddForce(physicsResult3.NetForce, ForceMode.Force);
-        //     rb.AddTorque(physicsResult3.NetTorque, ForceMode.Force);
-        //     
-        //     rb.AddForce(physicsResult4.NetForce, ForceMode.Force);
-        //     rb.AddTorque(physicsResult4.NetTorque, ForceMode.Force);
-        // }
+            if (physicsTask.task.ThreadState == ThreadState.Unstarted)
+            {
+                // physicsTask.Complete = false;
+                // physicsTask.Started = true;
+                    
+                physicsTask.task.Start();
+                //physicsTask.sema.WaitOne();
+            }
+        }
     }
 
     public class PhysicsResult
     {
-        public Vector3 NetForce;
-        public Vector3 NetTorque;
-        public int UnderwaterVerts;
-
-        public PhysicsResult()
-        {
-            ClearState();
-        }
+        public Vector3 NetForce = Vector3.zero;
+        public Vector3 NetTorque = Vector3.zero;
+        public int UnderwaterVerts = 0;
 
         public void ClearState()
         {
@@ -359,7 +398,8 @@ public class Buoyancy : MonoBehaviour
 
     private PhysicsResult CalculateForces(int startIndex, int endIndex)
     {
-        PhysicsResult result = new PhysicsResult();
+        PhysicsResult physicsResult = new PhysicsResult();
+        physicsResult.ClearState();
 
         for (var index = startIndex; index < endIndex; index++)
         {
@@ -384,28 +424,32 @@ public class Buoyancy : MonoBehaviour
                 forcePosition = worldPosition + TransformDirection(transformRotation, verts[index]);
 
                 //rb.AddForceAtPosition(forceAmount, forcePosition, ForceMode.Force);
-                result.NetForce += forceAmount;
+                physicsResult.NetForce += forceAmount;
 
                 //Torque is the cross product of the distance to center of mass and the force vector.
-                result.NetTorque += Vector3.Cross(forcePosition - worldPosition, forceAmount);
+                physicsResult.NetTorque += Vector3.Cross(forcePosition - worldPosition, forceAmount);
 
-                result.UnderwaterVerts++;
+                physicsResult.UnderwaterVerts++;
             }
 
             // HACK to remove sunken boats
             if (worldVertPos.y < waterLineHack - 10f)
             {
-                actionsQueue.Enqueue(() =>
+                if (DestroyFallenBoats)
                 {
-                    // This code will run on the main thread
+                    actionsQueue.Enqueue(() =>
+                    {
+                        // This code will run on the main thread
 
-                    DestroyParentGO();
-                });
+                        DestroyParentGO();
+                    });
+                }
+
                 break;
             }
         }
 
-        return result;
+        return physicsResult;
     }
 
     private void DestroyParentGO()

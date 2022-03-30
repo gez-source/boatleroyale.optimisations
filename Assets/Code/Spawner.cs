@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 public class Spawner : MonoBehaviour
 {
@@ -13,18 +14,33 @@ public class Spawner : MonoBehaviour
 	public float rotationMin = -180;
 	public float rotationMax = 180;
 
+	[FormerlySerializedAs("DestroyFallenBoats")] public bool DestroyFallen = true;
+	
+	public List<GameObject> SpawnedObjects = new List<GameObject>();
+
 	// Use this for initialization
 	void Start()
 	{
+		Buoyancy.OnDestroyed += Buoyancy_OnDestroyed;
+		Buoyancy.DestroyFallenBoats = DestroyFallen;
+		
 		for (int i = 0; i < count; i++)
 		{
 			Spawn();
 		}
 	}
 
+	private void Buoyancy_OnDestroyed(GameObject obj)
+	{
+		SpawnedObjects.Remove(obj);
+	}
+
 	private void Spawn()
 	{
 		GameObject o = Instantiate(prefab, transform.position + new Vector3(Random.Range(-randomAmount, randomAmount), Random.Range(-randomAmount, randomAmount)/2f, Random.Range(-randomAmount, randomAmount)), Quaternion.Euler(new Vector3(Random.Range(rotationMin, rotationMax), Random.Range(rotationMin, rotationMax), Random.Range(rotationMin, rotationMax))));
+		
+		SpawnedObjects.Add(o);
+
 		if (Random.value > 0.3f)
 		{
 			o.GetComponent<Rigidbody>().velocity = new Vector3(Random.Range(-randomThrowAmount, randomThrowAmount), 0,
