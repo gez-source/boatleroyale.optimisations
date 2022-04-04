@@ -14,26 +14,57 @@ public class Spawner : MonoBehaviour
 	public float rotationMin = -180;
 	public float rotationMax = 180;
 
-	[FormerlySerializedAs("DestroyFallenBoats")] public bool DestroyFallen = true;
+	public bool deterministic = false;
+	public int seed = 10000;
+	public bool DestroyFallen = true;
 	
 	public List<GameObject> SpawnedObjects = new List<GameObject>();
 
-	// Use this for initialization
-	void Start()
+	public void Cleanup()
 	{
-		Buoyancy.OnDestroyed += Buoyancy_OnDestroyed;
+		for (int i = 0; i < SpawnedObjects.Count; i++)
+		{
+			GameObject go = SpawnedObjects[i];
+			DestroyImmediate(go);
+			//SpawnedObjects.Remove(go);
+		}
+		SpawnedObjects.Clear();
+	}
+
+	public void SpawnAll()
+	{
+		if (deterministic)
+		{
+			Random.InitState(seed);
+		}
+
+		//Buoyancy.OnDestroyed += Buoyancy_OnDestroyed;
 		Buoyancy.DestroyFallenBoats = DestroyFallen;
+		
+		Cleanup();
 		
 		for (int i = 0; i < count; i++)
 		{
 			Spawn();
 		}
 	}
-
-	private void Buoyancy_OnDestroyed(GameObject obj)
+	
+	// Use this for initialization
+	void OnEnable()
 	{
-		SpawnedObjects.Remove(obj);
+		//SpawnAll();
 	}
+	
+	void OnDisable()
+	{
+		//Buoyancy.OnDestroyed -= Buoyancy_OnDestroyed;
+
+		//Cleanup();
+	}
+	// private void Buoyancy_OnDestroyed(GameObject obj)
+	// {
+	// 	SpawnedObjects.Remove(obj);
+	// }
 
 	private void Spawn()
 	{
