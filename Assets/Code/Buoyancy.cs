@@ -7,6 +7,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityStandardAssets.Water;
+using static Unity.Mathematics.math;
+using Unity.Mathematics;
+using float3 = Unity.Mathematics.float3;
 
 // Cams mostly hack buoyancy
 public class Buoyancy : MonoBehaviour
@@ -62,6 +65,9 @@ public class Buoyancy : MonoBehaviour
 
     private Vector3[] forces; // Forces per normal to apply in future
     private Vector3[] torques; // Torques per normal to apply in future
+
+    private float3[] vertsSIMD;
+    private float3[] normalsSIMD;
     
     /// <summary>
     /// The queue of actions to execute on the main thread.
@@ -91,11 +97,14 @@ public class Buoyancy : MonoBehaviour
         //SetupThreads();
         //CalculateForcesThreadedAsync();
         //PreCalculateForces();
+        
+        InitSIMDTypes(); // Convert Unity Vectors to Unity.Mathematics SIMD types:
     }
 
     void Update()
     {
-        CalculateForces();
+        //CalculateForces();
+        CalculateForcesSIMD();
         //CalculateForcesBetter();
         //CalculateForcesSync();
         //CalculateForcesThreaded();
@@ -106,6 +115,32 @@ public class Buoyancy : MonoBehaviour
         //CalculateForces();
     }
 
+    private void InitSIMDTypes()
+    {
+        // Convert Unity Vectors to Unity.Mathematics SIMD types:
+        Vector3 n;
+        Vector3 v;
+        int normIdx;
+        int vert;
+        
+        vertsSIMD = new float3[vertsLength];
+        normalsSIMD = new float3[normalsCount];
+        
+        for (vert = 0; vert < vertsLength; vert++)
+        {
+            v = verts[vert];
+            
+            vertsSIMD[vert] = float3(v.x, v.y, v.z);
+        }
+
+        for (normIdx = 0; normIdx < normalsCount; normIdx++)
+        {
+            n = normals[normIdx];
+            
+            normalsSIMD[normIdx] = float3(n.x, n.y, n.z);
+        }
+    }
+    
     private void PreCalculateForces()
     {
         Vector3 centerOfMass = Vector3.zero;
@@ -159,6 +194,7 @@ public class Buoyancy : MonoBehaviour
 
     private void CalculateForcesBetter()
     {
+        Vector3 centerOfMass = Vector3.zero;
         Vector3 netForce = Vector3.zero;
         Vector3 netTorque = Vector3.zero;
         int underwaterVerts = 0;
@@ -183,10 +219,17 @@ public class Buoyancy : MonoBehaviour
                 forcePosition = vertexPosition;
                 
                 netForce += forceAmount;
-                //netTorque += Vector3.Cross(forcePosition - worldPositiion, forceAmount);
+                //netTorque += Vector3.Cross(forcePosition - centerOfMass, forceAmount);
                 netTorque += Vector3.Cross(forcePosition, forceAmount);
                 
                 underwaterVerts++;
+            }
+            
+            // HACK to remove sunken boats
+            if (worldVertexPos.y < waterLineHack - 10f && DestroyFallenBoats)
+            {
+                DestroyParentGO();
+                break;
             }
         }
 
@@ -217,7 +260,7 @@ public class Buoyancy : MonoBehaviour
         Vector3 netForce = Vector3.zero;
         Vector3 netTorque = Vector3.zero;
         int underwaterVerts = 0;
-        
+
         for (var index = 0; index < normalsCount; index++)
         {
             worldVertPos = worldPosition + (transformRotation * verts[index]);
@@ -246,7 +289,7 @@ public class Buoyancy : MonoBehaviour
 
                 //rb.AddForceAtPosition(forceAmount, forcePosition, ForceMode.Force);
                 netForce += forceAmount;
-
+                
                 //Torque is the cross product of the distance to center of mass and the force vector.
                 // netTorque += Vector3.Cross(forcePosition - worldPosition, forceAmount);
                 netTorque += Vector3.Cross(forcePosition, forceAmount);
@@ -255,7 +298,7 @@ public class Buoyancy : MonoBehaviour
             }
 
             // HACK to remove sunken boats
-            if (worldVertPos.y < waterLineHack - 10f)
+            if (worldVertPos.y < waterLineHack - 10f && DestroyFallenBoats)
             {
                 DestroyParentGO();
                 break;
@@ -276,6 +319,84 @@ public class Buoyancy : MonoBehaviour
         }
     }
 
+    private void CalculateForcesSIMD()
+    {
+        dt = Time.deltaTime;
+
+        worldPosition = _transform.position;
+        transformRotation = _transform.rotation;
+        velocityMagnitude = rb.velocity.magnitude;
+        angularVelocityMagnitude = rb.angularVelocity.magnitude;
+
+        //PhysicsResult physicsResult = new PhysicsResult();
+        Vector3 netForce = Vector3.zero;
+        Vector3 netTorque = Vector3.zero;
+        int underwaterVerts = 0;
+
+        float3 netForceSimd = float3.zero;
+        float3 netTorqueSimd = float3.zero;
+        float3 forceAmountSimd;
+        float3 forcePositionSimd;
+        float3 worldVertPosSimd;
+        float3 worldPositionSimd = float3(worldPosition.x, worldPosition.y, worldPosition.z);
+        quaternion transformRotationSimd = quaternion(transformRotation.x, transformRotation.y, transformRotation.z, transformRotation.w);
+
+        float y;
+        float worldY = worldPosition.y;
+        
+        for (var index = 0; index < normalsCount; index++)
+        {
+            y = worldY + (transformRotation * verts[index]).y; // FASTER than SIMD code below for some reason
+            //y = worldY + mul(transformRotationSimd, vertsSIMD[index]).y;
+            
+            if (y < waterLineHack)
+            {
+                // Splashes only on surface of water plane
+                // if (worldVertPosSIMD.y > waterLineHack - 0.1f)
+                // {
+                //     if (velocityMagnitude > splashVelocityThreshold ||
+                //         angularVelocityMagnitude > splashVelocityThreshold)
+                //     {
+                //         //print(velocityMagnitude); // Gerallt: Slow to Debug.Log
+                //         if (OnSplash != null)
+                //         {
+                //             OnSplash.Invoke(gameObject, new Vector3(worldVertPosSIMD.x, worldVertPosSIMD.y, worldVertPosSIMD.z), rb.velocity);
+                //         }
+                //     }
+                // }
+                //
+
+                forceAmountSimd = -normalsSIMD[index] * forceScalar * dt;
+                forcePositionSimd = vertsSIMD[index];
+
+                netForceSimd += forceAmountSimd;
+                netTorqueSimd += cross(forcePositionSimd, forceAmountSimd);
+                
+                underwaterVerts++;
+            }
+
+            // HACK to remove sunken boats
+            if (y < waterLineHack - 10f && DestroyFallenBoats)
+            {
+                DestroyParentGO();
+                break;
+            }
+        }
+
+        if (underwaterVerts > 0 && rb != null)
+        {
+            netForce = new Vector3(netForceSimd.x, netForceSimd.y, netForceSimd.z);
+            netTorque = new Vector3(netTorqueSimd.x, netTorqueSimd.y, netTorqueSimd.z);
+            
+            // Drag for percentage underwater
+            rb.drag = (underwaterVerts / (float) vertsLength) * dragScalar;
+            rb.angularDrag = (underwaterVerts / (float) vertsLength) * dragScalar;
+
+            rb.AddRelativeForce(netForce, ForceMode.Force);
+            rb.AddRelativeTorque(netTorque, ForceMode.Force);
+        }
+    }
+    
     private void CalculateForcesThreaded()
     {
         worldPosition = _transform.position;

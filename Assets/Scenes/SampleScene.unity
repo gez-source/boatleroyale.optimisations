@@ -400,7 +400,7 @@ Light:
   m_BounceIntensity: 1
   m_ColorTemperature: 6570
   m_UseColorTemperature: 0
-  m_BoundingSphereOverride: {x: 0, y: 0, z: 0, w: 0}
+  m_BoundingSphereOverride: {x: 1, y: 1.0000001, z: 1.4e-44, w: 1.6526e-41}
   m_UseBoundingSphereOverride: 0
   m_UseViewFrustumForShadowCasterCull: 1
   m_ShadowRadius: 0
@@ -5905,7 +5905,7 @@ MonoBehaviour:
   rotationMax: 0
   deterministic: 1
   seed: 10000
-  DestroyFallen: 0
+  DestroyFallen: 1
   SpawnedObjects: []
 --- !u!4 &747389648
 Transform:
