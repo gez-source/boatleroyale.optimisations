@@ -41,7 +41,8 @@ public class Buoyancy : MonoBehaviour
     private float dt;
     private Quaternion transformRotation;
     private int underwaterVertsCount;
-
+    private Vector3 acceleration = Vector3.zero;
+    
     private Task<PhysicsResult> singleTask;
     private List<PhysicsTask> physicsTaskList = new List<PhysicsTask>();
     private Task task1;
@@ -59,11 +60,10 @@ public class Buoyancy : MonoBehaviour
     private float angularVelocityMagnitude;
     private Vector3 normalWorldPosition;
 
-    private Vector3[] forces; // Forces per normal to apply in future
-    private Vector3[] torques; // Torques per normal to apply in future
-
     private float3[] vertsSIMD;
     private float3[] normalsSIMD;
+    private bool bCalculateForcesSimdLateUpdate = false;
+    private bool bCalculateForcesSimdParallelLateUpdate = false;
     
     /// <summary>
     /// The queue of actions to execute on the main thread.
@@ -84,6 +84,12 @@ public class Buoyancy : MonoBehaviour
     private NativeArray<int> underwaterVertsIns;
     private NativeArray<float3> computedForces;
 
+    private NativeArray<int> underwaterVertsIns2;
+    private NativeArray<float3> forces;
+    private NativeArray<float3> torques;
+    private BoatPhysicsJobParallel physicsJobParallel;
+    private JobHandle physicsJobHandleParallel;
+    
     private void Start()
     {
         rb = GetComponent<Rigidbody>();
@@ -95,20 +101,18 @@ public class Buoyancy : MonoBehaviour
         vertsLength = mesh.vertices.Length;
         verts = mesh.vertices;
         normals = mesh.normals;
-        forces = new Vector3[normalsCount];
-        torques = new Vector3[normalsCount];
-        
+
         //SetupThreads();
         //CalculateForcesThreadedAsync();
-        //PreCalculateForces();
-        
-        InitSimd(); // Convert Unity Vectors to Unity.Mathematics SIMD types:
+
+        InitSimd();
     }
 
     void Update()
     {
         //CalculateForces();
         CalculateForcesSIMD();
+        //CalculateForcesSimdParallel();
         //CalculateForcesBetter();
         //CalculateForcesSync();
         //CalculateForcesThreaded();
@@ -121,11 +125,10 @@ public class Buoyancy : MonoBehaviour
         normalsSimd.Dispose();
         underwaterVertsIns.Dispose();
         computedForces.Dispose();
-    }
 
-    private void FixedUpdate()
-    {
-        //CalculateForces();
+        underwaterVertsIns2.Dispose();
+        forces.Dispose();
+        torques.Dispose();
     }
 
     private void InitSimd()
@@ -154,59 +157,13 @@ public class Buoyancy : MonoBehaviour
         underwaterVertsIns = new NativeArray<int>(1, Allocator.Persistent);
         computedForces = new NativeArray<float3>(2, Allocator.Persistent);
         
+        underwaterVertsIns2 = new NativeArray<int>(1 * BoatPhysicsJobParallel.NUM_JOBS, Allocator.Persistent); // More for parallel job
+        forces = new NativeArray<float3>(1 * BoatPhysicsJobParallel.NUM_JOBS, Allocator.Persistent);
+        torques = new NativeArray<float3>(1 * BoatPhysicsJobParallel.NUM_JOBS, Allocator.Persistent);
+        
         physicsJob = new BoatPhysicsJob();
+        physicsJobParallel = new BoatPhysicsJobParallel();
     }
-    
-    // private void PreCalculateForces()
-    // {
-    //     Vector3 centerOfMass = Vector3.zero;
-    //     
-    //     for (int index = 0; index < normalsCount; index++)
-    //     {
-    //         forceAmount = -normals[index] * forceScalar;
-    //         forcePosition = verts[index];
-    //         
-    //         forces[index] = forceAmount;
-    //         
-    //         //Torque is the cross product of the distance to center of mass and the force vector.
-    //         torques[index] = Vector3.Cross(forcePosition - centerOfMass, forceAmount);
-    //     }
-    // }
-
-    // private void OnCollisionStay(Collision collision)
-    // {
-    //     GameObject go = collision.gameObject;
-    //     WaterTile water = go.GetComponent<WaterTile>();
-    //
-    //     if (water != null)
-    //     {
-    //         Vector3 NetForce = Vector3.zero;
-    //         Vector3 NetTorque = Vector3.zero;
-    //         
-    //         // Collided with water so need to lookup 
-    //         for (int index = 0; index < collision.contactCount; index++)
-    //         {
-    //             ContactPoint hitPoint = collision.contacts[index];
-    //
-    //             //Vector3 colliderPosition = hitPoint.thisCollider.ClosestPoint(hitPoint.point);
-    //             //Debug.DrawLine(hitPoint.point, hitPoint.normal, Color.red);
-    //
-    //             forceAmount = -hitPoint.normal * forceScalar;
-    //             forcePosition = hitPoint.point;
-    //                 
-    //             NetForce += forceAmount;
-    //
-    //             //Torque is the cross product of the distance to center of mass and the force vector.
-    //             NetTorque += Vector3.Cross(forcePosition - worldPosition, forceAmount);
-    //         }
-    //
-    //         if (rb != null)
-    //         {
-    //             rb.AddForce(NetForce, ForceMode.Force);
-    //             rb.AddTorque(NetTorque, ForceMode.Force);
-    //         }
-    //     }
-    // }
 
     private void CalculateForcesBetter()
     {
@@ -271,8 +228,7 @@ public class Buoyancy : MonoBehaviour
         transformRotation = _transform.rotation;
         velocityMagnitude = rb.velocity.magnitude;
         angularVelocityMagnitude = rb.angularVelocity.magnitude;
-
-        //PhysicsResult physicsResult = new PhysicsResult();
+        
         Vector3 netForce = Vector3.zero;
         Vector3 netTorque = Vector3.zero;
         int underwaterVerts = 0;
@@ -337,6 +293,8 @@ public class Buoyancy : MonoBehaviour
 
     private void CalculateForcesSIMD()
     {
+        bCalculateForcesSimdLateUpdate = true;
+        
         physicsJob.vertsSimd = vertsSimd;
         physicsJob.normalsSimd = normalsSimd;
         physicsJob.normalsLength = normalsCount;
@@ -351,27 +309,90 @@ public class Buoyancy : MonoBehaviour
         physicsJobHandle = physicsJob.Schedule(); // SIMD Calculate Forces
     }
 
+    private void CalculateForcesSimdParallel()
+    {
+        bCalculateForcesSimdParallelLateUpdate = true;
+        
+        physicsJobParallel.vertsSimd = vertsSimd;
+        physicsJobParallel.normalsSimd = normalsSimd;
+        physicsJobParallel.normalsLength = normalsCount;
+        physicsJobParallel.waterLineHack = waterLineHack;
+        physicsJobParallel.forceScalar = forceScalar;
+        physicsJobParallel.dt = Time.deltaTime;
+        physicsJobParallel.worldY = _transform.position.y;
+        physicsJobParallel.transformRotation = _transform.rotation;
+        physicsJobParallel.underwaterVertsIns = underwaterVertsIns2;
+        physicsJobParallel.forces = forces;
+        physicsJobParallel.torques = torques;
+
+        // SIMD Calculate Forces batch task
+        int jobs = BoatPhysicsJobParallel.NUM_JOBS;
+        physicsJobHandleParallel = physicsJobParallel.Schedule(jobs, normalsCount / jobs); 
+    }
+
     private void LateUpdate()
     {
-        physicsJobHandle.Complete(); // SIMD Calculate Forces
-
-        int underwaterVerts = physicsJob.underwaterVertsIns[0];
-        
-        // Update Rigidbody Physics with new computed forces.
-        if (underwaterVerts > 0 && rb != null)
+        if (bCalculateForcesSimdLateUpdate)
         {
-            float3 netForceSimd = physicsJob.computedForces[0];
-            float3 netTorqueSimd = physicsJob.computedForces[1];
-         
-            Vector3 netForce = new Vector3(netForceSimd.x, netForceSimd.y, netForceSimd.z);
-            Vector3 netTorque = new Vector3(netTorqueSimd.x, netTorqueSimd.y, netTorqueSimd.z);
-            
-            // Drag for percentage underwater
-            rb.drag = (underwaterVerts / (float) vertsLength) * dragScalar;
-            rb.angularDrag = (underwaterVerts / (float) vertsLength) * dragScalar;
+            physicsJobHandle.Complete(); // SIMD Calculate Forces
 
-            rb.AddRelativeForce(netForce, ForceMode.Force);
-            rb.AddRelativeTorque(netTorque, ForceMode.Force);
+            int underwaterVerts = physicsJob.underwaterVertsIns[0];
+        
+            // Update Rigidbody Physics with new computed forces.
+            if (underwaterVerts > 0 && rb != null)
+            {
+                float3 netForceSimd = physicsJob.computedForces[0];
+                float3 netTorqueSimd = physicsJob.computedForces[1];
+         
+                Vector3 netForce = new Vector3(netForceSimd.x, netForceSimd.y, netForceSimd.z);
+                Vector3 netTorque = new Vector3(netTorqueSimd.x, netTorqueSimd.y, netTorqueSimd.z);
+            
+                // Drag for percentage underwater
+                float dragCoefficient = ((underwaterVerts / (float) vertsLength) * dragScalar);
+
+                rb.drag = dragCoefficient;
+                rb.angularDrag = dragCoefficient;
+
+                rb.AddRelativeForce(netForce, ForceMode.Force);
+                rb.AddRelativeTorque(netTorque, ForceMode.Force);
+            }
+        }
+        else if (bCalculateForcesSimdParallelLateUpdate)
+        {
+            physicsJobHandleParallel.Complete(); // SIMD Calculate Forces batch task
+
+            int underwaterVerts = 0;
+            Vector3 netForce = Vector3.zero;
+            Vector3 netTorque = Vector3.zero;
+            
+            for (int jobId = 0; jobId < BoatPhysicsJobParallel.NUM_JOBS; jobId++)
+            {
+                int underVerts = physicsJobParallel.underwaterVertsIns[jobId];
+                
+                underwaterVerts += underVerts;
+
+                if (underVerts > 0)
+                {
+                    float3 forceSimd = physicsJobParallel.forces[jobId];
+                    float3 torqueSimd = physicsJobParallel.torques[jobId];
+                    
+                    netForce += new Vector3(forceSimd.x, forceSimd.y, forceSimd.z);
+                    netTorque += new Vector3(torqueSimd.x, torqueSimd.y, torqueSimd.z);
+                }
+            }
+            
+            // Update Rigidbody Physics with new computed forces.
+            if (underwaterVerts > 0 && rb != null)
+            {
+                // Drag for percentage underwater
+                float dragCoefficient = ((underwaterVerts / (float) vertsLength) * dragScalar);
+
+                rb.drag = dragCoefficient;
+                rb.angularDrag = dragCoefficient;
+
+                rb.AddRelativeForce(netForce, ForceMode.Force);
+                rb.AddRelativeTorque(netTorque, ForceMode.Force);
+            }
         }
     }
 
