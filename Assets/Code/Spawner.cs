@@ -95,6 +95,6 @@ public class Spawner : MonoBehaviour
 	
 	void OnGUI()
 	{
-		GUI.Label(new Rect(100, 10, 300, 20),  SpawnedObjects.Count.ToString() + " boats");
+		GUI.Label(new Rect(400, 10, 300, 20),  SpawnedObjects.Count.ToString() + " boats");
 	}
 }
