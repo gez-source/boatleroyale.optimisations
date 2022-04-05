@@ -92,4 +92,9 @@ public class Spawner : MonoBehaviour
 			Spawn();
 		}
 	}
+	
+	void OnGUI()
+	{
+		GUI.Label(new Rect(100, 10, 300, 20),  SpawnedObjects.Count.ToString() + " boats");
+	}
 }

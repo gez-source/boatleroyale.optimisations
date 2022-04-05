@@ -77,9 +77,12 @@ public class Buoyancy : MonoBehaviour
     //private BlockingCollection<PhysicsResult> bodyUpdatesQueue = new BlockingCollection<PhysicsResult>(10);
 
 
-
+    private BoatPhysicsJob physicsJob;
+    private JobHandle physicsJobHandle;
     private NativeArray<float3> vertsSimd;
     private NativeArray<float3> normalsSimd;
+    private NativeArray<int> underwaterVertsIns;
+    private NativeArray<float3> computedForces;
 
     private void Start()
     {
@@ -99,7 +102,7 @@ public class Buoyancy : MonoBehaviour
         //CalculateForcesThreadedAsync();
         //PreCalculateForces();
         
-        InitSIMDTypes(); // Convert Unity Vectors to Unity.Mathematics SIMD types:
+        InitSimd(); // Convert Unity Vectors to Unity.Mathematics SIMD types:
     }
 
     void Update()
@@ -116,6 +119,8 @@ public class Buoyancy : MonoBehaviour
         // Dispose of NativeArrays
         vertsSimd.Dispose();
         normalsSimd.Dispose();
+        underwaterVertsIns.Dispose();
+        computedForces.Dispose();
     }
 
     private void FixedUpdate()
@@ -123,7 +128,7 @@ public class Buoyancy : MonoBehaviour
         //CalculateForces();
     }
 
-    private void InitSIMDTypes()
+    private void InitSimd()
     {
         // Convert Unity Vectors to Unity.Mathematics SIMD types:
         int normIdx;
@@ -145,6 +150,11 @@ public class Buoyancy : MonoBehaviour
             
             normalsSimd[normIdx] = float3(n.x, n.y, n.z);
         }
+        
+        underwaterVertsIns = new NativeArray<int>(1, Allocator.Persistent);
+        computedForces = new NativeArray<float3>(2, Allocator.Persistent);
+        
+        physicsJob = new BoatPhysicsJob();
     }
     
     // private void PreCalculateForces()
@@ -327,24 +337,22 @@ public class Buoyancy : MonoBehaviour
 
     private void CalculateForcesSIMD()
     {
-        NativeArray<int> underwaterVertsIns = new NativeArray<int>(1, Allocator.Persistent);
-        NativeArray<float3> computedForces = new NativeArray<float3>(2, Allocator.Persistent);
-        
-        BoatPhysicsJob physicsJob = new BoatPhysicsJob()
-        {
-            vertsSimd = vertsSimd,
-            normalsSimd = normalsSimd,
-            normalsLength = normalsCount,
-            waterLineHack = waterLineHack,
-            forceScalar = forceScalar,
-            dt = Time.deltaTime,
-            worldY = _transform.position.y,
-            transformRotation = _transform.rotation,
-            underwaterVertsIns = underwaterVertsIns,
-            computedForces = computedForces
-        };
+        physicsJob.vertsSimd = vertsSimd;
+        physicsJob.normalsSimd = normalsSimd;
+        physicsJob.normalsLength = normalsCount;
+        physicsJob.waterLineHack = waterLineHack;
+        physicsJob.forceScalar = forceScalar;
+        physicsJob.dt = Time.deltaTime;
+        physicsJob.worldY = _transform.position.y;
+        physicsJob.transformRotation = _transform.rotation;
+        physicsJob.underwaterVertsIns = underwaterVertsIns;
+        physicsJob.computedForces = computedForces;
 
-        JobHandle physicsJobHandle = physicsJob.Schedule(); // SIMD Calculate Forces
+        physicsJobHandle = physicsJob.Schedule(); // SIMD Calculate Forces
+    }
+
+    private void LateUpdate()
+    {
         physicsJobHandle.Complete(); // SIMD Calculate Forces
 
         int underwaterVerts = physicsJob.underwaterVertsIns[0];
@@ -365,11 +373,8 @@ public class Buoyancy : MonoBehaviour
             rb.AddRelativeForce(netForce, ForceMode.Force);
             rb.AddRelativeTorque(netTorque, ForceMode.Force);
         }
-
-        underwaterVertsIns.Dispose();
-        computedForces.Dispose();
     }
-    
+
     private void CalculateForcesThreaded()
     {
         worldPosition = _transform.position;
