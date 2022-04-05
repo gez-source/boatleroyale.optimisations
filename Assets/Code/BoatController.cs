@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -9,12 +10,19 @@ public class BoatController : MonoBehaviour
 	public float maxMotorAngle;
 	public Buoyancy Buoyancy;
 	public Rigidbody Rigidbody;
+	private Transform _transform;
 	
+	
+	public void Awake()
+	{
+		_transform = GetComponent<Transform>();
+	}
+
 	// Update is called once per frame
 	void Update()
 	{
 		// Turning
-		motor.rotation = transform.rotation * Quaternion.Euler(0, -Input.GetAxis("Horizontal")*maxMotorAngle, 0);
+		motor.rotation = _transform.rotation * Quaternion.Euler(0, -Input.GetAxis("Horizontal")*maxMotorAngle, 0);
 		
 		// HACK: Forward motor
 		if (motor.position.y < Buoyancy.waterLineHack)
