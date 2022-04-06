@@ -41,7 +41,7 @@ namespace Gerallt
         [ReadOnly]
         public int normalsLength;
         
-        public void Execute(int i)
+        public void Execute(int jobId)
         {
             // Calculate Forces for Buoyancy
             quaternion transformRotationSimd = quaternion(transformRotation.x, transformRotation.y, transformRotation.z, transformRotation.w);
@@ -50,20 +50,20 @@ namespace Gerallt
             float3 netTorques = float3.zero;
             int underwaterVerts = 0;
 
-            //  Determine workload given index
+            //  Determine workload given job index
             int startIndex;
             int endIndex;
             int jobSize = normalsLength / NUM_JOBS;
 
-            if (i == 0)
+            if (jobId == 0)
             {
                 startIndex = 0;
                 endIndex = jobSize;
             }
             else
             {
-                startIndex = jobSize * i;
-                endIndex = jobSize * (i + 1);
+                startIndex = jobSize * jobId;
+                endIndex = jobSize * (jobId + 1);
             }
 
             for (int index = startIndex; index < endIndex; index++)
@@ -82,9 +82,9 @@ namespace Gerallt
                 }
             }
 
-            underwaterVertsIns[i] = underwaterVerts;
-            forces[i] = netForces;
-            torques[i] = netTorques;
+            underwaterVertsIns[jobId] = underwaterVerts;
+            forces[jobId] = netForces;
+            torques[jobId] = netTorques;
         }
     }
 }

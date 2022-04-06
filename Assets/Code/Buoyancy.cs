@@ -111,8 +111,8 @@ public class Buoyancy : MonoBehaviour
     void Update()
     {
         //CalculateForces();
-        CalculateForcesSIMD();
-        //CalculateForcesSimdParallel();
+        //CalculateForcesSIMD();
+        CalculateForcesSimdParallel();
         //CalculateForcesBetter();
         //CalculateForcesSync();
         //CalculateForcesThreaded();
@@ -327,7 +327,8 @@ public class Buoyancy : MonoBehaviour
 
         // SIMD Calculate Forces batch task
         int jobs = BoatPhysicsJobParallel.NUM_JOBS;
-        physicsJobHandleParallel = physicsJobParallel.Schedule(jobs, normalsCount / jobs); 
+        int jobSize = normalsCount / jobs;
+        physicsJobHandleParallel = physicsJobParallel.Schedule(jobs, jobSize); 
     }
 
     private void LateUpdate()
