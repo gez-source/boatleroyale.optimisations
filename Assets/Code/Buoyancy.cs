@@ -547,6 +547,7 @@ public class Buoyancy : MonoBehaviour
                         forcePosition = vertPos;
                     
                         netForce += forceAmount;
+                        //netTorque += Vector3.Cross(forcePosition - centerOfMass, forceAmount);
                         netTorque += Vector3.Cross(forcePosition, forceAmount);
                         // Torque is the cross product of the distance to center of mass and the force vector.
                     
@@ -611,8 +612,8 @@ public class Buoyancy : MonoBehaviour
                 netForce += forceAmount;
         
                 //Torque is the cross product of the distance to center of mass and the force vector.
-                //netTorque += Vector3.Cross(forcePosition, forceAmount);
-                netTorque += Vector3.Cross(forcePosition - centerOfMass, forceAmount);
+                netTorque += Vector3.Cross(forcePosition, forceAmount);
+                //netTorque += Vector3.Cross(forcePosition - centerOfMass, forceAmount);
                 
                 underwaterVerts++;
             }
