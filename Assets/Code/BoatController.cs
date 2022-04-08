@@ -15,6 +15,7 @@ public class BoatController : MonoBehaviour
 	private Quaternion motorDirection = Quaternion.identity;
 	private Vector3 eulerAngles = Vector3.zero;
 	public Vector3 bounceBackOffset = new Vector3(0, 0.25f, 0); // HACK: Offset hack to stop the boat flipping all the time!
+	public bool turnOver = true;
 	
 	public void Awake()
 	{
@@ -34,7 +35,7 @@ public class BoatController : MonoBehaviour
 		Vector3 motorPosition = motor.position;
 		
 		// HACK: Forward motor
-		if (motorPosition.y < Buoyancy.waterLineHack)
+		if (motorPosition.y < Buoyancy.waterLineHack && turnOver)
 		{
 			//			Rigidbody.AddRelativeForce(0,0,speed * (underwaterVerts / (float)totalVerts));
 			

@@ -41,11 +41,11 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 4995795622048714}
+  - component: {fileID: 5768277240902467073}
   - component: {fileID: 33431339996325556}
   - component: {fileID: 54641998304906012}
   - component: {fileID: 64655485281920980}
   - component: {fileID: 114866618822879760}
-  - component: {fileID: 5768277240902467073}
   m_Layer: 0
   m_Name: Boat Big
   m_TagString: Untagged
@@ -71,6 +71,24 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &5768277240902467073
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1298374087262984}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 59b6aa1ccac23b04281941b76877cb6f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  splashVelocityThreshold: 4
+  forceScalar: 400.04
+  areaScalar: 15
+  cullAngle: 0.5
+  waterLineHack: 0
+  dragScalar: 12.48
 --- !u!33 &33431339996325556
 MeshFilter:
   m_ObjectHideFlags: 0
@@ -124,25 +142,10 @@ MonoBehaviour:
   speed: 10000
   motor: {fileID: 4612812926595066}
   maxMotorAngle: 10
-  Buoyancy: {fileID: 0}
+  Buoyancy: {fileID: 5768277240902467073}
   Rigidbody: {fileID: 54641998304906012}
---- !u!114 &5768277240902467073
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1298374087262984}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 59b6aa1ccac23b04281941b76877cb6f, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  splashVelocityThreshold: 4
-  forceScalar: 400.04
-  waterLineHack: 0
-  underwaterVerts: 0
-  dragScalar: 12.48
+  bounceBackOffset: {x: 0, y: 0.25, z: 0}
+  turnOver: 1
 --- !u!1 &1375399197514012
 GameObject:
   m_ObjectHideFlags: 0

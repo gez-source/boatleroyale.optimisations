@@ -60,7 +60,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   splashVelocityThreshold: 4
-  forceScalar: 400.04
+  forceScalar: 400
+  areaScalar: 3
+  cullAngle: 0.5
   waterLineHack: 0
   dragScalar: 12
 --- !u!54 &54061361556925660
@@ -105,12 +107,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 693ed889f4efc244baaea41ad17da928, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  speed: 10000
+  speed: 20000
   motor: {fileID: 4424814420345466}
   maxMotorAngle: 10
   Buoyancy: {fileID: 114885970712148708}
   Rigidbody: {fileID: 54061361556925660}
   bounceBackOffset: {x: 0, y: 0.25, z: 0}
+  turnOver: 1
 --- !u!1 &1523353711448398
 GameObject:
   m_ObjectHideFlags: 0

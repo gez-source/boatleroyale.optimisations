@@ -22,6 +22,8 @@ public class Buoyancy : MonoBehaviour
 {
     public float splashVelocityThreshold;
     public float forceScalar;
+    public float areaScalar;
+    public float cullAngle;
     public float waterLineHack; // HACK
 
     //public int underwaterVerts;
@@ -52,11 +54,11 @@ public class Buoyancy : MonoBehaviour
     private Vector3 angularVelocity = Vector3.zero;
     private Vector3 netForces = Vector3.zero;
     private Vector3 netTorques = Vector3.zero;
-    private float dragForce = 0; 
-    private static bool loadedCOM = false; 
-    private static Vector3 centerOfMass; // Center of mass of boat mesh.
-    private static float totalSurfaceArea = 0f; // Total surface area of boat mesh.
-
+    private float dragForce = 0;
+    private Vector3 centerOfMass; // Center of mass of boat mesh.
+    private float totalSurfaceArea; // Total surface area of boat mesh.
+    private float maxSurfaceArea;
+    
     private Task<PhysicsResult> singleTask;
     private List<PhysicsTask> physicsTaskList = new List<PhysicsTask>();
     private Task task1;
@@ -139,15 +141,9 @@ public class Buoyancy : MonoBehaviour
         verts = mesh.vertices;
         normals = mesh.normals;
 
-        if (loadedCOM == false)
-        {
-            // Find mesh center of mass and mesh surface area which is used by custom physics.
-            faces = mesh.triangles;
-            
-            TraverseMesh();
-            
-            loadedCOM = true;
-        }
+        // Find mesh center of mass and mesh surface area which is used by custom physics.
+        faces = mesh.triangles;
+        TraverseMesh();
 
         //SetupThreads();
         //CalculateForcesThreadedAsync();
@@ -158,6 +154,7 @@ public class Buoyancy : MonoBehaviour
     public void TraverseMesh()
     {
         totalSurfaceArea = 0f;
+        maxSurfaceArea = float.MinValue;
         centerOfMass = Vector3.zero;
 
         for (var faceIndex = 0; faceIndex <= faces.Length - 3; faceIndex += 3)
@@ -170,11 +167,16 @@ public class Buoyancy : MonoBehaviour
             Vector3 v2 = verts[index1];
             Vector3 v3 = verts[index2];
 
-            Vector3 edge21 = v2 - v1;
-            Vector3 edge31 = v3 - v1;
+            Vector3 edge1 = v2 - v1;
+            Vector3 edge2 = v3 - v1;
 
             // Calculate entire surface area of boat and center of mass while we are at it.
-            float triangleArea = Vector3.Cross(edge21, edge31).magnitude / 2.0f;
+            float triangleArea = Vector3.Cross(edge1, edge2).sqrMagnitude / 2.0f;
+
+            if (triangleArea > maxSurfaceArea)
+            {
+                maxSurfaceArea = triangleArea;
+            }
             
             totalSurfaceArea += triangleArea;
             centerOfMass += (v1 + v2 + v3);
@@ -359,7 +361,6 @@ public class Buoyancy : MonoBehaviour
     
     private void CalculateForcesBetter()
     {
-        Vector3 centerOfMass = Vector3.zero;
         Vector3 netForce = Vector3.zero;
         Vector3 netTorque = Vector3.zero;
         int underwaterVerts = 0;
@@ -456,8 +457,8 @@ public class Buoyancy : MonoBehaviour
                 netForce += forceAmount;
 
                 //Torque is the cross product of the distance to center of mass and the force vector.
-                // netTorque += Vector3.Cross(forcePosition - worldPosition, forceAmount);
                 netTorque += Vector3.Cross(forcePosition, forceAmount);
+                //netTorque += Vector3.Cross(forcePosition - centerOfMass, forceAmount);
 
                 underwaterVerts++;
             }
@@ -498,63 +499,60 @@ public class Buoyancy : MonoBehaviour
 
         float HACK = 4.0f; // HACK: had to double force before boats would float. If you are just using the Unity Rigidbody don't use the hack
         HACK = 1.0f; // Uncomment if using Unity's Rigidbody
+        //HACK = 1000;
         
         Vector3 netForce = Vector3.zero;
         Vector3 netTorque = Vector3.zero;
         int underwaterVerts = 0;
 
         // Testing new surface area force contributions
-        for (var faceIndex = 0; faceIndex <= faces.Length - 3; faceIndex += 3)
+        for (var faceIndex = 0; faceIndex <= faces.Length - 3; faceIndex += 3) // Face is always a triangle.
         {
             var index0 = faces[faceIndex];
             var index1 = faces[faceIndex + 1];
             var index2 = faces[faceIndex + 2];
+
+            if (index0 >= vertsLength)
+                continue;
             
             Vector3 v1 = verts[index0];
             Vector3 v2 = verts[index1];
             Vector3 v3 = verts[index2];
             
-            Vector3 edge21 = v2 - v1;
-            Vector3 edge31 = v3 - v1;
-            
-            float triangleArea = Vector3.Cross(edge21, edge31).magnitude / 2.0f;
+             Vector3 edge1 = v2 - v1;
+             Vector3 edge2 = v3 - v1;
+            float triangleArea = Vector3.Cross(edge1, edge2).sqrMagnitude / 2.0f;
 
             // Take into account the contribution of the surface area and each vertex 
-            float areaRatio = triangleArea / totalSurfaceArea; 
-            float forceMagnitude = forceScalar * HACK * areaRatio * dt;
+            //float areaRatio = triangleArea / totalSurfaceArea;
+            float areaRatio = triangleArea / maxSurfaceArea;
+            //float areaRatio = triangleArea;
             
-            Vector3 v1WorldPos = worldPosition + (transformRotation * v1);
-            Vector3 v2WorldPos = worldPosition + (transformRotation * v2);
-            Vector3 v30WorldPos = worldPosition + (transformRotation * v3);
-            
-            if (v1WorldPos.y < waterLineHack)
-            {
-                forceAmount = -normals[index0] * forceMagnitude;
-                forcePosition = verts[index0];
-                netForce += forceAmount;
-                netTorque += Vector3.Cross(forcePosition, forceAmount);
+            float forceMagnitude = ((forceScalar * HACK) * (areaRatio * areaScalar))  * dt;
 
-                underwaterVerts++;
-            }
-            
-            if (v2WorldPos.y < waterLineHack)
+            for (var vertIndex = 0; vertIndex < 3; vertIndex++)
             {
-                forceAmount = -normals[index1] * forceMagnitude;
-                forcePosition = verts[index1];
-                netForce += forceAmount;
-                netTorque += Vector3.Cross(forcePosition, forceAmount);
-
-                underwaterVerts++;
-            }
-            
-            if (v30WorldPos.y < waterLineHack)
-            {
-                forceAmount = -normals[index2] * forceMagnitude;
-                forcePosition = verts[index2];
-                netForce += forceAmount;
-                netTorque += Vector3.Cross(forcePosition, forceAmount);
+                var index = faces[faceIndex + vertIndex];
+                Vector3 vertPos = verts[index];
                 
-                underwaterVerts++;
+                Vector3 vertWorldPos = worldPosition + (transformRotation * vertPos);
+                
+                if (vertWorldPos.y < waterLineHack)
+                {
+                    Vector3 normal = normals[index].normalized;
+
+                    if (Vector3.Dot((transformRotation * normal).normalized, Vector3.down) > cullAngle) // Filter out parts of the boat that aren't the hull.
+                    {
+                        forceAmount = (-normal) * forceMagnitude;
+                        forcePosition = vertPos;
+                    
+                        netForce += forceAmount;
+                        netTorque += Vector3.Cross(forcePosition, forceAmount);
+                        // Torque is the cross product of the distance to center of mass and the force vector.
+                    
+                        underwaterVerts++;
+                    }
+                }
             }
         }
         
@@ -572,7 +570,7 @@ public class Buoyancy : MonoBehaviour
             float dragCoefficient = ((underwaterVerts / (float) vertsLength) * this.dragScalar);
             dragForce = dragCoefficient;
         }
-        
+
         // TESTING
         rb.drag = dragForce;
         rb.angularDrag = dragForce;
@@ -613,8 +611,9 @@ public class Buoyancy : MonoBehaviour
                 netForce += forceAmount;
         
                 //Torque is the cross product of the distance to center of mass and the force vector.
-                netTorque += Vector3.Cross(forcePosition, forceAmount);
-        
+                //netTorque += Vector3.Cross(forcePosition, forceAmount);
+                netTorque += Vector3.Cross(forcePosition - centerOfMass, forceAmount);
+                
                 underwaterVerts++;
             }
         }
@@ -1107,7 +1106,7 @@ public class Buoyancy : MonoBehaviour
                 physicsResult.NetForce += forceAmount;
 
                 //Torque is the cross product of the distance to center of mass and the force vector.
-                physicsResult.NetTorque += Vector3.Cross(forcePosition - worldPosition, forceAmount);
+                physicsResult.NetTorque += Vector3.Cross(forcePosition - worldPosition, forceAmount); // TODO: Probably should use centerOfMass
 
                 physicsResult.UnderwaterVerts++;
             }
