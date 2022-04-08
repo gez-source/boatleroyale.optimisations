@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Gerallt;
@@ -14,6 +15,7 @@ using static Unity.Mathematics.math;
 using Unity.Mathematics;
 using float3 = Unity.Mathematics.float3;
 using float4 = Unity.Mathematics.float4;
+using quaternion = Unity.Mathematics.quaternion;
 
 // Cams mostly hack buoyancy
 public class Buoyancy : MonoBehaviour
@@ -50,7 +52,10 @@ public class Buoyancy : MonoBehaviour
     private Vector3 angularVelocity = Vector3.zero;
     private Vector3 netForces = Vector3.zero;
     private Vector3 netTorques = Vector3.zero;
-    private float dragForce = 0;
+    private float dragForce = 0; 
+    private static bool loadedCOM = false; 
+    private static Vector3 centerOfMass; // Center of mass of boat mesh.
+    private static float totalSurfaceArea = 0f; // Total surface area of boat mesh.
 
     private Task<PhysicsResult> singleTask;
     private List<PhysicsTask> physicsTaskList = new List<PhysicsTask>();
@@ -64,6 +69,7 @@ public class Buoyancy : MonoBehaviour
     private int QuarterSize => normalsCount / 4;
     private Vector3[] verts;
     private Vector3[] normals;
+    private static int[] faces = null;
     private Vector3 worldPosition;
     private float velocityMagnitude;
     private float angularVelocityMagnitude;
@@ -133,10 +139,51 @@ public class Buoyancy : MonoBehaviour
         verts = mesh.vertices;
         normals = mesh.normals;
 
+        if (loadedCOM == false)
+        {
+            // Find mesh center of mass and mesh surface area which is used by custom physics.
+            faces = mesh.triangles;
+            
+            TraverseMesh();
+            
+            loadedCOM = true;
+        }
+
         //SetupThreads();
         //CalculateForcesThreadedAsync();
 
-        InitJobs();
+        //InitJobs();
+    }
+    
+    public void TraverseMesh()
+    {
+        totalSurfaceArea = 0f;
+        centerOfMass = Vector3.zero;
+
+        for (var faceIndex = 0; faceIndex <= faces.Length - 3; faceIndex += 3)
+        {
+            var index0 = faces[faceIndex];
+            var index1 = faces[faceIndex + 1];
+            var index2 = faces[faceIndex + 2];
+            
+            Vector3 v1 = verts[index0];
+            Vector3 v2 = verts[index1];
+            Vector3 v3 = verts[index2];
+
+            Vector3 edge21 = v2 - v1;
+            Vector3 edge31 = v3 - v1;
+
+            // Calculate entire surface area of boat and center of mass while we are at it.
+            float triangleArea = Vector3.Cross(edge21, edge31).magnitude / 2.0f;
+            
+            totalSurfaceArea += triangleArea;
+            centerOfMass += (v1 + v2 + v3);
+        }
+
+        if (vertsLength > 0)
+        {
+            centerOfMass /= vertsLength;
+        }
     }
 
     void Update()
@@ -144,8 +191,9 @@ public class Buoyancy : MonoBehaviour
         dt = Time.deltaTime;
         
         //CalculateForces(); // Slightly more optimised original ComputeForces
+        CalculateForcesOnSurface(); // Calculates forces proportional to the boats surface area 
         //CalculateForcesTransform(); // Like the one above but applying forces directly to Transform trying to emulate what Unity Rigidbody does
-        CalculateForcesSIMD(); // Using Unity.Mathematics optimisations to vector math and running this in a single Unity Job every frame update
+        //CalculateForcesSIMD(); // Using Unity.Mathematics optimisations to vector math and running this in a single Unity Job every frame update
         //CalculateForcesSimdParallel(); // Computing forces using Parallel Unity Job  
         //CalculateForcesSimdParallel2(); // Computing forces using Parallel Unity Job, but applying forces directly to Transform
         //CalculateForcesBetter(); // Not much different to CalculateForces()
@@ -165,24 +213,30 @@ public class Buoyancy : MonoBehaviour
 
     private void OnDestroy()
     {
-        // Dispose of NativeArrays
-        vertsSimd.Dispose();
-        normalsSimd.Dispose();
-        underwaterVertsIns.Dispose();
-        computedForces.Dispose();
-
-        underwaterVertsIns2.Dispose();
-        forces.Dispose();
-        torques.Dispose();
-
-        boatCount--;
-        boatIndex--;
-
-        if (boatCount == 0)
-        {
-            positions.Dispose();
-            loaded = false;
-        }
+        // // Dispose of NativeArrays
+        // vertsSimd.Dispose();
+        // normalsSimd.Dispose();
+        // underwaterVertsIns.Dispose();
+        // computedForces.Dispose();
+        //
+        // underwaterVertsIns2.Dispose();
+        // forces.Dispose();
+        // torques.Dispose();
+        //
+        // boatCount--;
+        // boatIndex--;
+        //
+        // // if (boatCount <= 0)
+        // // {
+        // //     positions.Dispose();
+        // //     rotations.Dispose();
+        // //     isDirty.Dispose();
+        // //     loaded = false;
+        // // }
+        //
+        // positions.Dispose();
+        // rotations.Dispose();
+        // isDirty.Dispose();
     }
 
     private void InitJobs()
@@ -264,7 +318,6 @@ public class Buoyancy : MonoBehaviour
         
         mass = rb.mass;
         boatMassInverse = 1.0f / mass;
-        //inertia = rb.inertiaTensorRotation * rb.inertiaTensor; // Is the inertia tensor already rotated? and do I need to update this as it rotates every FixedUpdate()
         inertia = rb.inertiaTensor;
         inertiaInverse = new Vector3(1.0f / inertia.x, 1.0f / inertia.y, 1.0f / inertia.z);
     }
@@ -348,8 +401,9 @@ public class Buoyancy : MonoBehaviour
         if (underwaterVerts > 0 && rb != null)
         {
             // Drag for percentage underwater
-            rb.drag = (underwaterVerts / (float) vertsLength) * dragScalar;
-            rb.angularDrag = (underwaterVerts / (float) vertsLength) * dragScalar;
+            float dragCoefficient =  (underwaterVerts / (float) vertsLength) * dragScalar;
+            rb.drag = dragCoefficient;
+            rb.angularDrag = dragCoefficient;
 
             // rb.AddForce(netForce, ForceMode.Force);
             // rb.AddTorque(netTorque, ForceMode.Force);
@@ -419,8 +473,10 @@ public class Buoyancy : MonoBehaviour
         if (underwaterVerts > 0 && rb != null)
         {
             // Drag for percentage underwater
-            rb.drag = (underwaterVerts / (float) vertsLength) * dragScalar;
-            rb.angularDrag = (underwaterVerts / (float) vertsLength) * dragScalar;
+            float dragCoefficient = ((underwaterVerts / (float) vertsLength) * this.dragScalar);
+            
+            rb.drag = dragCoefficient;
+            rb.angularDrag = dragCoefficient;
 
             // rb.AddForce(netForce, ForceMode.Force);
             // rb.AddTorque(netTorque, ForceMode.Force);
@@ -430,14 +486,117 @@ public class Buoyancy : MonoBehaviour
         }
     }
 
+    private void CalculateForcesOnSurface()
+    {
+        dt = Time.deltaTime;
+        
+        // Precondition: need to have a dt
+        bCalculateForcesTransform_FixedUpdate = false;
+        
+        worldPosition = _transform.position;
+        transformRotation = _transform.rotation;
+
+        float HACK = 4.0f; // HACK: had to double force before boats would float. If you are just using the Unity Rigidbody don't use the hack
+        HACK = 1.0f; // Uncomment if using Unity's Rigidbody
+        
+        Vector3 netForce = Vector3.zero;
+        Vector3 netTorque = Vector3.zero;
+        int underwaterVerts = 0;
+
+        // Testing new surface area force contributions
+        for (var faceIndex = 0; faceIndex <= faces.Length - 3; faceIndex += 3)
+        {
+            var index0 = faces[faceIndex];
+            var index1 = faces[faceIndex + 1];
+            var index2 = faces[faceIndex + 2];
+            
+            Vector3 v1 = verts[index0];
+            Vector3 v2 = verts[index1];
+            Vector3 v3 = verts[index2];
+            
+            Vector3 edge21 = v2 - v1;
+            Vector3 edge31 = v3 - v1;
+            
+            float triangleArea = Vector3.Cross(edge21, edge31).magnitude / 2.0f;
+
+            // Take into account the contribution of the surface area and each vertex 
+            float areaRatio = triangleArea / totalSurfaceArea; 
+            float forceMagnitude = forceScalar * HACK * areaRatio * dt;
+            
+            Vector3 v1WorldPos = worldPosition + (transformRotation * v1);
+            Vector3 v2WorldPos = worldPosition + (transformRotation * v2);
+            Vector3 v30WorldPos = worldPosition + (transformRotation * v3);
+            
+            if (v1WorldPos.y < waterLineHack)
+            {
+                forceAmount = -normals[index0] * forceMagnitude;
+                forcePosition = verts[index0];
+                netForce += forceAmount;
+                netTorque += Vector3.Cross(forcePosition, forceAmount);
+
+                underwaterVerts++;
+            }
+            
+            if (v2WorldPos.y < waterLineHack)
+            {
+                forceAmount = -normals[index1] * forceMagnitude;
+                forcePosition = verts[index1];
+                netForce += forceAmount;
+                netTorque += Vector3.Cross(forcePosition, forceAmount);
+
+                underwaterVerts++;
+            }
+            
+            if (v30WorldPos.y < waterLineHack)
+            {
+                forceAmount = -normals[index2] * forceMagnitude;
+                forcePosition = verts[index2];
+                netForce += forceAmount;
+                netTorque += Vector3.Cross(forcePosition, forceAmount);
+                
+                underwaterVerts++;
+            }
+        }
+        
+        netForces = netForce;
+        netTorques = netTorque;
+        dragForce = 0;
+
+        // Apply gravity force internally
+        Vector3 gravityForce = Physics.gravity;
+        rb.useGravity = false;
+
+        if (underwaterVerts > 0 && rb != null)
+        {
+            // Drag for percentage underwater
+            float dragCoefficient = ((underwaterVerts / (float) vertsLength) * this.dragScalar);
+            dragForce = dragCoefficient;
+        }
+        
+        // TESTING
+        rb.drag = dragForce;
+        rb.angularDrag = dragForce;
+        rb.AddRelativeForce(netForces, ForceMode.Force);
+        rb.AddForce(gravityForce, ForceMode.Acceleration);
+        rb.AddRelativeTorque(netTorques, ForceMode.Force);
+
+        netForces = Vector3.zero;
+        netTorques = Vector3.zero;
+    }
+    
     private void CalculateForcesTransform()
     {
+        dt = Time.deltaTime;
+        
         // Precondition: need to have a dt
         bCalculateForcesTransform_FixedUpdate = true; // Run a FixedUpdate to apply the forces
         
         worldPosition = _transform.position;
         transformRotation = _transform.rotation;
 
+        float HACK = 4.0f; // HACK: had to double force before boats would float. If you are just using the Unity Rigidbody don't use the hack
+        HACK = 1.0f; // Uncomment if using Unity's Rigidbody
+        
         Vector3 netForce = Vector3.zero;
         Vector3 netTorque = Vector3.zero;
         int underwaterVerts = 0;
@@ -445,33 +604,54 @@ public class Buoyancy : MonoBehaviour
         for (var index = 0; index < normalsCount; index++)
         {
             worldVertPos = worldPosition + (transformRotation * verts[index]);
-
+        
             if (worldVertPos.y < waterLineHack)
             {
-                forceAmount = ((-normals[index]) * forceScalar) * dt;
+                forceAmount = ((-normals[index]) * forceScalar * HACK) * dt;
                 forcePosition = verts[index];
-
+        
                 netForce += forceAmount;
-
+        
                 //Torque is the cross product of the distance to center of mass and the force vector.
                 netTorque += Vector3.Cross(forcePosition, forceAmount);
-
+        
                 underwaterVerts++;
             }
         }
-
-
+        
         // Defer applying these until FixedUpdate
         netForces = netForce;
         netTorques = netTorque;
         dragForce = 0;
 
-        if (underwaterVerts > 0)
+        // Apply gravity force internally
+        //Vector3 gravityForce = Physics.gravity;
+        rb.useGravity = false;
+        
+        // if (rb.isKinematic == false)
+        // {
+        //     rb.velocity = Vector3.zero;
+        //     //rb.angularVelocity = Vector3.zero;
+        //     rb.drag = 0;
+        //     //rb.angularDrag = 0;
+        // }
+        
+        if (underwaterVerts > 0 && rb != null)
         {
             // Drag for percentage underwater
             float dragCoefficient = ((underwaterVerts / (float) vertsLength) * this.dragScalar);
             dragForce = dragCoefficient;
         }
+        
+        // TESTING
+        // rb.drag = dragForce;
+        // rb.angularDrag = dragForce;
+        // rb.AddRelativeForce(netForces, ForceMode.Force);
+        // rb.AddForce(gravityForce, ForceMode.Acceleration);
+        // rb.AddRelativeTorque(netTorques, ForceMode.Force);
+        //
+        // netForces = Vector3.zero;
+        // netTorques = Vector3.zero;
     }
 
     private void CalculateForcesTransform_FixedUpdate()
@@ -481,25 +661,22 @@ public class Buoyancy : MonoBehaviour
         {
             //dt = Time.time - myLastTime;
 
-            //CalculateForcesTransform();
-
-            rb.isKinematic = true;
-            if (rb.useGravity)
-            {
-                // Apply gravity force
-                Vector3 gravityForce = Physics.gravity * (mass * mass);
-                netForces += gravityForce;
-            }
-
+            // Apply gravity force
+            Vector3 gravityForce = _transform.worldToLocalMatrix * Physics.gravity;
+            
             // Apply forces to boat transform.
-            acceleration = ((netForces) * boatMassInverse); // F=ma, a=F/m
+            acceleration = netForces * boatMassInverse; // F=ma, a=F/m
             //angularAcceleration = netTorques * boatMassInverse; // F=ma, a=F/m
-            angularAcceleration = Vector3.Scale(netTorques, inertiaInverse); // F=ma, a=F/m
+            Vector3 inertiaRotated = rb.inertiaTensor * rb.mass; //HACK: combining mass and inertia
+            Vector3 inertiaRotInv = new Vector3(1.0f / inertiaRotated.x, 1.0f / inertiaRotated.y, 1.0f / inertiaRotated.z);
+            angularAcceleration = Vector3.Scale(netTorques,  inertiaRotInv); // F=ma, a=F/m, Apply inertia and mass
 
-            //dragCoefficient = 0;
+            // Apply acceleration due to gravity
+            acceleration += gravityForce;
+            
             float velocityDampening = 1.0f - (dragForce * dt);
             if (velocityDampening < 0.0f) velocityDampening = 0.0f;
-            //float velocityDampening = Mathf.Clamp(1.0f - (dt * (dragForce + 10)), 0.0f, 10000.0f);
+            //float velocityDampening = Mathf.Clamp(1.0f - (dt * (dragForce)), 0.0f, 10000.0f);
             
             Vector3 velocityChange = acceleration * dt; // linear velocity
             Vector3 angularVelocityChange = angularAcceleration * dt; // rotational velocity
@@ -508,20 +685,27 @@ public class Buoyancy : MonoBehaviour
             linearVelocity += velocityChange;
             linearVelocity *= velocityDampening;
             angularVelocity += angularVelocityChange;
-            angularVelocity *= velocityDampening;
+            angularVelocity *= velocityDampening; // Apply same drag value to rotation.
 
-            // Integrate to find new position and rotation
+            // Integrate to find new position
             Vector3 positionDelta = linearVelocity * dt;
-            Quaternion rotationDelta = Quaternion.Euler(angularVelocity * dt);
+            _transform.localPosition += positionDelta;
             
-            _transform.position += positionDelta;
-            _transform.rotation *= rotationDelta;
+            // Integrate to find new rotation
+            //Quaternion rotationDelta = Quaternion.Euler(angularVelocity * dt); // This is simple but it doesn't work
+            //_transform.localRotation *= rotationDelta;
+
+            Quaternion r = _transform.localRotation;
+            Quaternion w = new Quaternion(angularVelocity.x, angularVelocity.y, angularVelocity.z, 0);
+            Quaternion newRotation = Add(Scale(w, dt * 0.5f) * r, r);
+            newRotation.Normalize();
+            
+            _transform.localRotation = newRotation;
             
             // Update Forward Vector based on new velocity
-            //_transform.LookAt(_transform.position + linearVelocity);
-            //_transform.forward = linearVelocity.normalized;
-            _transform.forward = Vector3.Slerp(_transform.forward, linearVelocity.normalized, dt);
-            
+            _transform.forward = Vector3.Slerp(_transform.forward, _transform.position + linearVelocity.normalized, dt);
+            //_transform.forward = Vector3.Slerp(_transform.forward, linearVelocity.normalized, dt);
+
             // Apply drag dampening force
             // linearVelocity += velocityChange;
             // linearVelocity *= velocityDampening;
@@ -536,7 +720,16 @@ public class Buoyancy : MonoBehaviour
 
         myLastTime = Time.time;
     }
-    
+    public static Quaternion Scale(Quaternion q, float scale)
+    {
+        return new Quaternion(q.x * scale, q.y * scale, q.z * scale, q.w * scale);
+    }
+
+    public static Quaternion Add(Quaternion left, Quaternion right)
+    {
+        return new Quaternion(left.x + right.x, left.y + right.y, left.z + right.z, left.w + right.w);;
+    }
+
     private void CalculateForcesSIMD()
     {
         bCalculateForcesSimdLateUpdate = true;
