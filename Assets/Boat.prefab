@@ -62,8 +62,7 @@ MonoBehaviour:
   splashVelocityThreshold: 4
   forceScalar: 400.04
   waterLineHack: 0
-  underwaterVerts: 0
-  dragScalar: 12.48
+  dragScalar: 12
 --- !u!54 &54061361556925660
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -111,6 +110,7 @@ MonoBehaviour:
   maxMotorAngle: 10
   Buoyancy: {fileID: 114885970712148708}
   Rigidbody: {fileID: 54061361556925660}
+  bounceBackOffset: {x: 0, y: 0.25, z: 0}
 --- !u!1 &1523353711448398
 GameObject:
   m_ObjectHideFlags: 0
