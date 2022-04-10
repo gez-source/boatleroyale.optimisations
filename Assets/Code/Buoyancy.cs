@@ -583,9 +583,9 @@ public class Buoyancy : MonoBehaviour
         // TESTING
         // rb.drag = dragForce;
         // rb.angularDrag = dragForce;
-        // rb.AddRelativeForce(netForces, ForceMode.Force);
+        // rb.AddForce(netForces, ForceMode.Force);
         // rb.AddForce(gravityForce, ForceMode.Acceleration);
-        // rb.AddRelativeTorque(netTorques, ForceMode.Force);
+        // rb.AddTorque(netTorques, ForceMode.Force);
         //
         // netForces = Vector3.zero;
         // netTorques = Vector3.zero;
@@ -732,8 +732,8 @@ public class Buoyancy : MonoBehaviour
             _transform.rotation = newRotation;
             
             // Update Forward Vector based on new velocity (Align to new direction)
-            //_transform.forward = Vector3.Slerp(_transform.forward.normalized, linearVelocity.normalized, dt);
-           // _transform.forward += Vector3.Slerp(_transform.forward.normalized, linearVelocity.normalized, dt);
+            //_transform.forward = _transform.position + Vector3.Slerp(_transform.forward.normalized, linearVelocity.normalized, dt);
+            //_transform.forward += Vector3.Slerp(_transform.forward.normalized, linearVelocity.normalized, dt);
 
            // Apply drag dampening force
            // linearVelocity += velocityChange;

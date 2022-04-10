@@ -61,10 +61,13 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   splashVelocityThreshold: 4
   forceScalar: 400
-  areaScalar: 3
+  areaScalar: 9.8
   cullAngle: 0.5
+  dontCullTopNormals: 1
   waterLineHack: 0
+  waterDepthScalar: 0.12
   dragScalar: 12
+  aerodynamicDrag: {x: 0, y: 0, z: 0}
 --- !u!54 &54061361556925660
 Rigidbody:
   m_ObjectHideFlags: 0
