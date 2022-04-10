@@ -13,6 +13,7 @@ using UnityEngine;
 using UnityStandardAssets.Water;
 using static Unity.Mathematics.math;
 using Unity.Mathematics;
+using UnityEngine.Serialization;
 using float3 = Unity.Mathematics.float3;
 using float4 = Unity.Mathematics.float4;
 using quaternion = Unity.Mathematics.quaternion;
@@ -24,10 +25,11 @@ public class Buoyancy : MonoBehaviour
     public float forceScalar;
     public float areaScalar;
     public float cullAngle;
+    public bool dontCullTopNormals;
     public float waterLineHack; // HACK
-
-    //public int underwaterVerts;
+    public float waterDepthScalar;
     public float dragScalar;
+    public Vector3 aerodynamicDrag;
 
     public static event Action<GameObject, Vector3, Vector3> OnSplash;
     public static event Action<GameObject> OnDestroyed;
@@ -492,7 +494,7 @@ public class Buoyancy : MonoBehaviour
         dt = Time.deltaTime;
         
         // Precondition: need to have a dt
-        bCalculateForcesTransform_FixedUpdate = false;
+        bCalculateForcesTransform_FixedUpdate = true;
         
         worldPosition = _transform.position;
         transformRotation = _transform.rotation;
@@ -536,19 +538,25 @@ public class Buoyancy : MonoBehaviour
                 Vector3 vertPos = verts[index];
                 
                 Vector3 vertWorldPos = worldPosition + (transformRotation * vertPos);
+
+                float waterDepth = (1.0f + waterLineHack) - vertWorldPos.y;
                 
                 if (vertWorldPos.y < waterLineHack)
                 {
                     Vector3 normal = normals[index].normalized;
-
-                    if (Vector3.Dot((transformRotation * normal).normalized, Vector3.down) > cullAngle) // Filter out parts of the boat that aren't the hull.
-                    {
-                        forceAmount = (-normal) * forceMagnitude;
-                        forcePosition = vertPos;
                     
+                    if (dontCullTopNormals || Vector3.Dot((transformRotation * normal).normalized, Vector3.down) > cullAngle) // Filter out parts of the boat that aren't the hull.
+                    //if (dontCullTopNormals || Vector3.Dot(normal, Vector3.down) > cullAngle) 
+                    {
+                        //forceAmount = (transformRotation * -normal).normalized * forceScalar * dt;
+                        forceAmount = (transformRotation * (-normal)).normalized * (forceMagnitude * (waterDepth * waterDepthScalar)) ;
+
+                        forcePosition = vertWorldPos;
+                        //forcePosition = vertPos;
+                        
                         netForce += forceAmount;
                         //netTorque += Vector3.Cross(forcePosition - centerOfMass, forceAmount);
-                        netTorque += Vector3.Cross(forcePosition, forceAmount);
+                        netTorque += Vector3.Cross(forcePosition - worldPosition, forceAmount);
                         // Torque is the cross product of the distance to center of mass and the force vector.
                     
                         underwaterVerts++;
@@ -573,14 +581,14 @@ public class Buoyancy : MonoBehaviour
         }
 
         // TESTING
-        rb.drag = dragForce;
-        rb.angularDrag = dragForce;
-        rb.AddRelativeForce(netForces, ForceMode.Force);
-        rb.AddForce(gravityForce, ForceMode.Acceleration);
-        rb.AddRelativeTorque(netTorques, ForceMode.Force);
-
-        netForces = Vector3.zero;
-        netTorques = Vector3.zero;
+        // rb.drag = dragForce;
+        // rb.angularDrag = dragForce;
+        // rb.AddRelativeForce(netForces, ForceMode.Force);
+        // rb.AddForce(gravityForce, ForceMode.Acceleration);
+        // rb.AddRelativeTorque(netTorques, ForceMode.Force);
+        //
+        // netForces = Vector3.zero;
+        // netTorques = Vector3.zero;
     }
     
     private void CalculateForcesTransform()
@@ -662,55 +670,76 @@ public class Buoyancy : MonoBehaviour
             //dt = Time.time - myLastTime;
 
             // Apply gravity force
-            Vector3 gravityForce = _transform.worldToLocalMatrix * Physics.gravity;
+            //Vector3 gravityForce = _transform.worldToLocalMatrix * Physics.gravity;
+            Vector3 gravityForce = Physics.gravity;
             
             // Apply forces to boat transform.
-            acceleration = netForces * boatMassInverse; // F=ma, a=F/m
-            //angularAcceleration = netTorques * boatMassInverse; // F=ma, a=F/m
-            Vector3 inertiaRotated = rb.inertiaTensor * rb.mass; //HACK: combining mass and inertia
+            mass = rb.mass;
+            float invMass = (1.0f / mass);
+            acceleration = netForces * invMass; // F=ma, a=F/m
+            angularAcceleration = netTorques * invMass; // F=ma, a=F/m
+            Vector3 inertiaRotated = rb.inertiaTensor * mass; //HACK: combining mass and inertia
             Vector3 inertiaRotInv = new Vector3(1.0f / inertiaRotated.x, 1.0f / inertiaRotated.y, 1.0f / inertiaRotated.z);
-            angularAcceleration = Vector3.Scale(netTorques,  inertiaRotInv); // F=ma, a=F/m, Apply inertia and mass
+            //angularAcceleration = Vector3.Scale(netTorques,  inertiaRotInv); // F=ma, a=F/m, Apply inertia and mass
 
             // Apply acceleration due to gravity
             acceleration += gravityForce;
+
+            // Integrate to find new velocity
+            Vector3 velocityChange = acceleration * dt; // linear velocity
+            Vector3 angularVelocityChange = angularAcceleration * dt; // rotational velocity
             
+            linearVelocity += velocityChange;
+            angularVelocity += angularVelocityChange;
+
+
+
+            Vector3 alignmentTorque = Vector3.Cross(linearVelocity.normalized, _transform.forward.normalized); // Align to new direction
+            Vector3 alignmentVelocityChange = (alignmentTorque * invMass) * dt;
+            angularVelocity += alignmentVelocityChange;
+
+            // v = v - k * v // Linear drag
+            linearVelocity -= Vector3.Scale(aerodynamicDrag, linearVelocity);
+            angularVelocity -= Vector3.Scale(aerodynamicDrag, angularVelocity);
+            
+            // v = v - k * v - m * v2 // Quadratic drag
+            //linearVelocity = linearVelocity - (aerodynamicDrag * linearVelocity) - (mass * Vector3.Scale(linearVelocity, linearVelocity));
+            //angularVelocity = angularVelocity - (aerodynamicDrag * angularVelocity) - (Vector3.Scale(inertiaRotated, Vector3.Scale(angularVelocity, angularVelocity)));
+            //angularVelocity = angularVelocity - (aerodynamicDrag * angularVelocity) - (mass * Vector3.Scale(angularVelocity, angularVelocity));
+            //angularVelocity = angularVelocity - (aerodynamicDrag * angularVelocity);
+            
+            // Apply drag dampening force
             float velocityDampening = 1.0f - (dragForce * dt);
             if (velocityDampening < 0.0f) velocityDampening = 0.0f;
             //float velocityDampening = Mathf.Clamp(1.0f - (dt * (dragForce)), 0.0f, 10000.0f);
-            
-            Vector3 velocityChange = acceleration * dt; // linear velocity
-            Vector3 angularVelocityChange = angularAcceleration * dt; // rotational velocity
-
-            // Apply drag dampening force
-            linearVelocity += velocityChange;
             linearVelocity *= velocityDampening;
-            angularVelocity += angularVelocityChange;
             angularVelocity *= velocityDampening; // Apply same drag value to rotation.
-
+            
             // Integrate to find new position
             Vector3 positionDelta = linearVelocity * dt;
-            _transform.localPosition += positionDelta;
+            _transform.position += positionDelta;
             
             // Integrate to find new rotation
-            //Quaternion rotationDelta = Quaternion.Euler(angularVelocity * dt); // This is simple but it doesn't work
-            //_transform.localRotation *= rotationDelta;
+            // Quaternion rotationDelta = Quaternion.Euler(angularVelocity * dt); // This is simple but it doesn't work
+            // //Quaternion rotationDelta = Quaternion.LookRotation(angularVelocity * dt);
+            // rotationDelta.Normalize();
+            // _transform.rotation *= rotationDelta;
 
-            Quaternion r = _transform.localRotation;
+            Quaternion r = _transform.rotation;
             Quaternion w = new Quaternion(angularVelocity.x, angularVelocity.y, angularVelocity.z, 0);
             Quaternion newRotation = Add(Scale(w, dt * 0.5f) * r, r);
             newRotation.Normalize();
+            _transform.rotation = newRotation;
             
-            _transform.localRotation = newRotation;
-            
-            // Update Forward Vector based on new velocity
-            _transform.forward = Vector3.Slerp(_transform.forward, _transform.position + linearVelocity.normalized, dt);
-            //_transform.forward = Vector3.Slerp(_transform.forward, linearVelocity.normalized, dt);
+            // Update Forward Vector based on new velocity (Align to new direction)
+            //_transform.forward = Vector3.Slerp(_transform.forward.normalized, linearVelocity.normalized, dt);
+           // _transform.forward += Vector3.Slerp(_transform.forward.normalized, linearVelocity.normalized, dt);
 
-            // Apply drag dampening force
-            // linearVelocity += velocityChange;
-            // linearVelocity *= velocityDampening;
-            // angularVelocity += angularVelocityChange;
-            // angularVelocity *= velocityDampening;
+           // Apply drag dampening force
+           // linearVelocity += velocityChange;
+           // linearVelocity *= velocityDampening;
+           // angularVelocity += angularVelocityChange;
+           // angularVelocity *= velocityDampening;
         }
         else
         {
