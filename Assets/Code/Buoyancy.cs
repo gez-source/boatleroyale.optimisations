@@ -74,6 +74,7 @@ public class Buoyancy : MonoBehaviour
     private Vector3[] verts;
     private Vector3[] normals;
     private static int[] faces = null;
+    private static float[] polygonAreas = null;
     private Vector3 worldPosition;
     private float velocityMagnitude;
     private float angularVelocityMagnitude;
@@ -159,6 +160,8 @@ public class Buoyancy : MonoBehaviour
         maxSurfaceArea = float.MinValue;
         centerOfMass = Vector3.zero;
 
+        polygonAreas = new float[faces.Length / 3];
+        
         for (var faceIndex = 0; faceIndex <= faces.Length - 3; faceIndex += 3)
         {
             var index0 = faces[faceIndex];
@@ -175,6 +178,8 @@ public class Buoyancy : MonoBehaviour
             // Calculate entire surface area of boat and center of mass while we are at it.
             float triangleArea = Vector3.Cross(edge1, edge2).sqrMagnitude / 2.0f;
 
+            polygonAreas[faceIndex / 3] = triangleArea; // Store precalculated polygon area.
+            
             if (triangleArea > maxSurfaceArea)
             {
                 maxSurfaceArea = triangleArea;
@@ -182,6 +187,10 @@ public class Buoyancy : MonoBehaviour
             
             totalSurfaceArea += triangleArea;
             centerOfMass += (v1 + v2 + v3);
+
+            normals[index0] = normals[index0].normalized;
+            normals[index1] = normals[index1].normalized;
+            normals[index2] = normals[index2].normalized;
         }
 
         if (vertsLength > 0)
@@ -517,14 +526,15 @@ public class Buoyancy : MonoBehaviour
             if (index0 >= vertsLength)
                 continue;
             
-            Vector3 v1 = verts[index0];
-            Vector3 v2 = verts[index1];
-            Vector3 v3 = verts[index2];
+            // Vector3 v1 = verts[index0];
+            // Vector3 v2 = verts[index1];
+            // Vector3 v3 = verts[index2];
+            //
+            //  Vector3 edge1 = v2 - v1;
+            //  Vector3 edge2 = v3 - v1;
+            //float triangleArea = Vector3.Cross(edge1, edge2).sqrMagnitude / 2.0f;
+            float triangleArea = polygonAreas[faceIndex / 3]; // Use precalculated polygon area to save time. 
             
-             Vector3 edge1 = v2 - v1;
-             Vector3 edge2 = v3 - v1;
-            float triangleArea = Vector3.Cross(edge1, edge2).sqrMagnitude / 2.0f;
-
             // Take into account the contribution of the surface area and each vertex 
             //float areaRatio = triangleArea / totalSurfaceArea;
             float areaRatio = triangleArea / maxSurfaceArea;
@@ -543,7 +553,7 @@ public class Buoyancy : MonoBehaviour
                 
                 if (vertWorldPos.y < waterLineHack)
                 {
-                    Vector3 normal = normals[index].normalized;
+                    Vector3 normal = normals[index];
                     
                     if (dontCullTopNormals || Vector3.Dot((transformRotation * normal).normalized, Vector3.down) > cullAngle) // Filter out parts of the boat that aren't the hull.
                     //if (dontCullTopNormals || Vector3.Dot(normal, Vector3.down) > cullAngle) 
