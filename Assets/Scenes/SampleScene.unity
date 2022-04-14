@@ -320,8 +320,8 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 81499137}
-  m_LocalRotation: {x: 0.1262128, y: 0.03243964, z: 0.0036618884, w: -0.99146587}
-  m_LocalPosition: {x: 326.72818, y: -326.53052, z: -375.04434}
+  m_LocalRotation: {x: -0.4999992, y: -0, z: -0, w: 0.86602587}
+  m_LocalPosition: {x: 0, y: -32.09, z: -31.24}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -459,7 +459,7 @@ Light:
   m_BounceIntensity: 1
   m_ColorTemperature: 6570
   m_UseColorTemperature: 0
-  m_BoundingSphereOverride: {x: 0, y: 0, z: 0, w: 6e-45}
+  m_BoundingSphereOverride: {x: 0, y: 0.000000005969646, z: 5.3e-43, w: 0.0000000032618424}
   m_UseBoundingSphereOverride: 0
   m_UseViewFrustumForShadowCasterCull: 1
   m_ShadowRadius: 0
@@ -6224,6 +6224,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: Boat
       objectReference: {fileID: 0}
+    - target: {fileID: 1377697306910010, guid: b9b0e5979fdc6b74a863b07b88e5d27d, type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 4110597348489084, guid: b9b0e5979fdc6b74a863b07b88e5d27d, type: 3}
       propertyPath: m_RootOrder
       value: 0
@@ -6516,8 +6520,8 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1004615762}
-  m_LocalRotation: {x: -0.040841684, y: 0.9312194, z: 0.11031195, w: 0.3449546}
-  m_LocalPosition: {x: -6.057395, y: -2.3117068, z: 5.965431}
+  m_LocalRotation: {x: -0.4999992, y: -0, z: -0, w: 0.86602587}
+  m_LocalPosition: {x: 0, y: -32.09, z: -31.24}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []

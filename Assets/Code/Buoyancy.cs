@@ -73,8 +73,8 @@ public class Buoyancy : MonoBehaviour
     private int QuarterSize => normalsCount / 4;
     private Vector3[] verts;
     private Vector3[] normals;
-    private static int[] faces = null;
-    private static float[] polygonAreas = null;
+    private int[] faces = null;
+    private float[] polygonAreas = null;
     private Vector3 worldPosition;
     private float velocityMagnitude;
     private float angularVelocityMagnitude;
@@ -83,6 +83,7 @@ public class Buoyancy : MonoBehaviour
     private float3[] vertsSIMD;
     private float3[] normalsSIMD;
     private bool bCalculateForcesSimdLateUpdate = false;
+    private bool bCalculateForcesSimdSurfacesLateUpdate = false;
     private bool bCalculateForcesSimdParallelLateUpdate = false;
     private bool bPhysicsJobHandleParallel2LateUpdate = false;
 
@@ -105,6 +106,11 @@ public class Buoyancy : MonoBehaviour
     private NativeArray<int> underwaterVertsIns;
     private NativeArray<float3> computedForces;
 
+    private BoatPhysicsJobSurfaces physicsJobSurfaces;
+    private JobHandle physicsJobHandleSurfaces;
+    private NativeArray<int> facesSimd;
+    private NativeArray<float> polygonAreasSimd;
+    
     private NativeArray<int> underwaterVertsIns2;
     private NativeArray<float3> forces;
     private NativeArray<float3> torques;
@@ -151,7 +157,7 @@ public class Buoyancy : MonoBehaviour
         //SetupThreads();
         //CalculateForcesThreadedAsync();
 
-        //InitJobs();
+        InitJobs();
     }
     
     public void TraverseMesh()
@@ -204,7 +210,8 @@ public class Buoyancy : MonoBehaviour
         dt = Time.deltaTime;
         
         //CalculateForces(); // Slightly more optimised original ComputeForces
-        CalculateForcesOnSurface(); // Calculates forces proportional to the boats surface area 
+        //CalculateForcesOnSurface(); // Calculates forces proportional to the boats surface area 
+        CalculateForcesOnSurfaceSIMD();
         //CalculateForcesTransform(); // Like the one above but applying forces directly to Transform trying to emulate what Unity Rigidbody does
         //CalculateForcesSIMD(); // Using Unity.Mathematics optimisations to vector math and running this in a single Unity Job every frame update
         //CalculateForcesSimdParallel(); // Computing forces using Parallel Unity Job  
@@ -226,30 +233,33 @@ public class Buoyancy : MonoBehaviour
 
     private void OnDestroy()
     {
-        // // Dispose of NativeArrays
-        // vertsSimd.Dispose();
-        // normalsSimd.Dispose();
-        // underwaterVertsIns.Dispose();
-        // computedForces.Dispose();
-        //
-        // underwaterVertsIns2.Dispose();
-        // forces.Dispose();
-        // torques.Dispose();
-        //
-        // boatCount--;
-        // boatIndex--;
-        //
-        // // if (boatCount <= 0)
-        // // {
-        // //     positions.Dispose();
-        // //     rotations.Dispose();
-        // //     isDirty.Dispose();
-        // //     loaded = false;
-        // // }
-        //
-        // positions.Dispose();
-        // rotations.Dispose();
-        // isDirty.Dispose();
+        // Dispose of NativeArrays
+        vertsSimd.Dispose();
+        normalsSimd.Dispose();
+        underwaterVertsIns.Dispose();
+        computedForces.Dispose();
+        
+        underwaterVertsIns2.Dispose();
+        forces.Dispose();
+        torques.Dispose();
+        
+        boatCount--;
+        boatIndex--;
+        
+        // if (boatCount <= 0)
+        // {
+        //     positions.Dispose();
+        //     rotations.Dispose();
+        //     isDirty.Dispose();
+        //     loaded = false;
+        // }
+        
+        positions.Dispose();
+        rotations.Dispose();
+        isDirty.Dispose();
+
+        polygonAreasSimd.Dispose();
+        facesSimd.Dispose();
     }
 
     private void InitJobs()
@@ -257,10 +267,14 @@ public class Buoyancy : MonoBehaviour
         // Convert Unity Vectors to Unity.Mathematics SIMD types:
         int normIdx;
         int vert;
+        int poly;
+        int faceIndex;
 
         vertsSimd = new NativeArray<float3>(vertsLength, Allocator.Persistent);
         normalsSimd = new NativeArray<float3>(normalsCount, Allocator.Persistent);
-
+        polygonAreasSimd = new NativeArray<float>(polygonAreas.Length, Allocator.Persistent);
+        facesSimd = new NativeArray<int>(faces.Length, Allocator.Persistent);
+        
         for (vert = 0; vert < vertsLength; vert++)
         {
             Vector3 v = verts[vert];
@@ -275,6 +289,16 @@ public class Buoyancy : MonoBehaviour
             normalsSimd[normIdx] = float3(n.x, n.y, n.z);
         }
 
+        for (poly = 0; poly < polygonAreas.Length; poly++)
+        {
+            polygonAreasSimd[poly] = polygonAreas[poly];
+        }
+        
+        for (faceIndex = 0; faceIndex < faces.Length; faceIndex++)
+        {
+            facesSimd[faceIndex] = faces[faceIndex];
+        }
+        
         underwaterVertsIns = new NativeArray<int>(1, Allocator.Persistent);
         computedForces = new NativeArray<float3>(2, Allocator.Persistent);
 
@@ -498,12 +522,23 @@ public class Buoyancy : MonoBehaviour
         }
     }
 
+    bool TriangleIntersectsWaterline(Vector3 vw0, Vector3 vw1, Vector3 vw2, Vector3 n0, Vector3 n1, Vector3 n2, float waterLine)
+    {
+        // float rayDistance = 0.01f;
+        //
+        // bool result = Physics.Raycast(vw0, n0, rayDistance)
+        //               || Physics.Raycast(vw1, n1, rayDistance)
+        //               || Physics.Raycast(vw2, n2, rayDistance);
+        // return result;
+        return (vw0.y < waterLine) || (vw1.y < waterLine) || (vw2.y < waterLine);
+    }
+    
     private void CalculateForcesOnSurface()
     {
         dt = Time.deltaTime;
         
         // Precondition: need to have a dt
-        bCalculateForcesTransform_FixedUpdate = true;
+        bCalculateForcesTransform_FixedUpdate = false;
         
         worldPosition = _transform.position;
         transformRotation = _transform.rotation;
@@ -515,61 +550,67 @@ public class Buoyancy : MonoBehaviour
         Vector3 netForce = Vector3.zero;
         Vector3 netTorque = Vector3.zero;
         int underwaterVerts = 0;
-
+        float invMaxSurfaceArea = 1.0f / maxSurfaceArea;
+        float oneThird = 1.0f / 3.0f;
+        
         // Testing new surface area force contributions
         for (var faceIndex = 0; faceIndex <= faces.Length - 3; faceIndex += 3) // Face is always a triangle.
         {
             var index0 = faces[faceIndex];
             var index1 = faces[faceIndex + 1];
             var index2 = faces[faceIndex + 2];
-
+            
             if (index0 >= vertsLength)
                 continue;
             
-            // Vector3 v1 = verts[index0];
-            // Vector3 v2 = verts[index1];
-            // Vector3 v3 = verts[index2];
-            //
-            //  Vector3 edge1 = v2 - v1;
-            //  Vector3 edge2 = v3 - v1;
-            //float triangleArea = Vector3.Cross(edge1, edge2).sqrMagnitude / 2.0f;
-            float triangleArea = polygonAreas[faceIndex / 3]; // Use precalculated polygon area to save time. 
-            
-            // Take into account the contribution of the surface area and each vertex 
-            //float areaRatio = triangleArea / totalSurfaceArea;
-            float areaRatio = triangleArea / maxSurfaceArea;
-            //float areaRatio = triangleArea;
-            
-            float forceMagnitude = ((forceScalar * HACK) * (areaRatio * areaScalar))  * dt;
+            Vector3 v1 = verts[index0];
+            Vector3 v2 = verts[index1];
+            Vector3 v3 = verts[index2];
 
-            for (var vertIndex = 0; vertIndex < 3; vertIndex++)
-            {
-                var index = faces[faceIndex + vertIndex];
-                Vector3 vertPos = verts[index];
-                
-                Vector3 vertWorldPos = worldPosition + (transformRotation * vertPos);
+            Vector3 vw0 = worldPosition + (transformRotation * v1);
+            Vector3 vw1 = worldPosition + (transformRotation * v2);
+            Vector3 vw2 = worldPosition + (transformRotation * v3);
+            
+            Vector3 n0 = normals[index0];
+            Vector3 n1 = normals[index1];
+            Vector3 n2 = normals[index2];
+            
+            if (TriangleIntersectsWaterline(vw0, vw1, vw2, n0, n1, n2, waterLineHack))
+            { 
+                // Take into account the contribution of the surface area and each vertex
+                float triangleArea = polygonAreas[(int)(faceIndex * oneThird)]; // Use precalculated polygon area to save time. 
+                float areaRatio = triangleArea * invMaxSurfaceArea; // float areaRatio = triangleArea / maxSurfaceArea;
+                float forceMagnitude = ((forceScalar * HACK) * (areaRatio * areaScalar))  * dt;
 
-                float waterDepth = (1.0f + waterLineHack) - vertWorldPos.y;
-                
-                if (vertWorldPos.y < waterLineHack)
+                for (var vertIndex = 0; vertIndex < 3; vertIndex++)
                 {
-                    Vector3 normal = normals[index];
+                    var index = faces[faceIndex + vertIndex];
+                    Vector3 vertPos = verts[index];
+                    Vector3 vertWorldPos = worldPosition + (transformRotation * vertPos);
+                    float waterDepth = (1.0f + waterLineHack) - vertWorldPos.y;
                     
-                    if (dontCullTopNormals || Vector3.Dot((transformRotation * normal).normalized, Vector3.down) > cullAngle) // Filter out parts of the boat that aren't the hull.
-                    //if (dontCullTopNormals || Vector3.Dot(normal, Vector3.down) > cullAngle) 
+                    if (vertWorldPos.y < waterLineHack)
                     {
-                        //forceAmount = (transformRotation * -normal).normalized * forceScalar * dt;
-                        forceAmount = (transformRotation * (-normal)).normalized * (forceMagnitude * (waterDepth * waterDepthScalar)) ;
-
-                        forcePosition = vertWorldPos;
-                        //forcePosition = vertPos;
+                        Vector3 normal = normals[index];
                         
-                        netForce += forceAmount;
-                        //netTorque += Vector3.Cross(forcePosition - centerOfMass, forceAmount);
-                        netTorque += Vector3.Cross(forcePosition - worldPosition, forceAmount);
-                        // Torque is the cross product of the distance to center of mass and the force vector.
-                    
-                        underwaterVerts++;
+                        if (dontCullTopNormals || Vector3.Dot((transformRotation * normal), Vector3.down) > cullAngle)
+                        //if (dontCullTopNormals || Vector3.Dot((transformRotation * normal).normalized, Vector3.down) > cullAngle) // Filter out parts of the boat that aren't the hull.
+                        //if (dontCullTopNormals || Vector3.Dot(normal, Vector3.down) > cullAngle) 
+                        {
+                            //forceAmount = (transformRotation * -normal).normalized * forceScalar * dt;
+                            //forceAmount = (transformRotation * (-normal)).normalized * (forceMagnitude * (waterDepth * waterDepthScalar)) ;
+                            forceAmount = (transformRotation * (-normal)) * (forceMagnitude * (waterDepth * waterDepthScalar)) ;
+                            
+                            forcePosition = vertWorldPos;
+                            //forcePosition = vertPos;
+                            
+                            netForce += forceAmount;
+                            //netTorque += Vector3.Cross(forcePosition - centerOfMass, forceAmount);
+                            netTorque += Vector3.Cross(forcePosition - worldPosition, forceAmount);
+                            // Torque is the cross product of the distance to center of mass and the force vector.
+                        
+                            underwaterVerts++;
+                        }
                     }
                 }
             }
@@ -591,14 +632,40 @@ public class Buoyancy : MonoBehaviour
         }
 
         // TESTING
-        // rb.drag = dragForce;
-        // rb.angularDrag = dragForce;
-        // rb.AddForce(netForces, ForceMode.Force);
-        // rb.AddForce(gravityForce, ForceMode.Acceleration);
-        // rb.AddTorque(netTorques, ForceMode.Force);
-        //
-        // netForces = Vector3.zero;
-        // netTorques = Vector3.zero;
+        rb.drag = dragForce;
+        rb.angularDrag = dragForce;
+        rb.AddForce(netForces, ForceMode.Force);
+        rb.AddForce(gravityForce, ForceMode.Acceleration);
+        rb.AddTorque(netTorques, ForceMode.Force);
+        
+        netForces = Vector3.zero;
+        netTorques = Vector3.zero;
+    }
+    
+    private void CalculateForcesOnSurfaceSIMD()
+    {
+        bCalculateForcesSimdSurfacesLateUpdate = true;
+
+        physicsJobSurfaces.vertsSimd = vertsSimd;
+        physicsJobSurfaces.normalsSimd = normalsSimd;
+        physicsJobSurfaces.normalsLength = normalsCount;
+        physicsJobSurfaces.vertsLength = vertsLength;
+        physicsJobSurfaces.polygonAreasSimd = polygonAreasSimd;
+        physicsJobSurfaces.facesSimd = facesSimd;
+        physicsJobSurfaces.maxSurfaceArea = maxSurfaceArea;
+        physicsJobSurfaces.waterLineHack = waterLineHack;
+        physicsJobSurfaces.forceScalar = forceScalar;
+        physicsJobSurfaces.areaScalar = areaScalar;
+        physicsJobSurfaces.waterDepthScalar = waterDepthScalar;
+        physicsJobSurfaces.cullAngle = cullAngle;
+        physicsJobSurfaces.dontCullTopNormals = dontCullTopNormals;
+        physicsJobSurfaces.dt = Time.deltaTime;
+        physicsJobSurfaces.worldPosition = _transform.position;
+        physicsJobSurfaces.transformRotation = _transform.rotation;
+        physicsJobSurfaces.underwaterVertsIns = underwaterVertsIns;
+        physicsJobSurfaces.computedForces = computedForces;
+
+        physicsJobHandleSurfaces = physicsJobSurfaces.Schedule(); // SIMD Calculate Forces on Surfaces
     }
     
     private void CalculateForcesTransform()
@@ -834,6 +901,31 @@ public class Buoyancy : MonoBehaviour
             {
                 float3 netForceSimd = physicsJob.computedForces[0];
                 float3 netTorqueSimd = physicsJob.computedForces[1];
+
+                Vector3 netForce = new Vector3(netForceSimd.x, netForceSimd.y, netForceSimd.z);
+                Vector3 netTorque = new Vector3(netTorqueSimd.x, netTorqueSimd.y, netTorqueSimd.z);
+
+                // Drag for percentage underwater
+                float dragCoefficient = ((underwaterVerts / (float) vertsLength) * dragScalar);
+
+                rb.drag = dragCoefficient;
+                rb.angularDrag = dragCoefficient;
+
+                rb.AddRelativeForce(netForce, ForceMode.Force);
+                rb.AddRelativeTorque(netTorque, ForceMode.Force);
+            }
+        }
+        else if (bCalculateForcesSimdSurfacesLateUpdate)
+        {
+            physicsJobHandleSurfaces.Complete(); // SIMD Calculate Forces
+
+            int underwaterVerts = physicsJobSurfaces.underwaterVertsIns[0];
+
+            // Update Rigidbody Physics with new computed forces.
+            if (underwaterVerts > 0 && rb != null)
+            {
+                float3 netForceSimd = physicsJobSurfaces.computedForces[0];
+                float3 netTorqueSimd = physicsJobSurfaces.computedForces[1];
 
                 Vector3 netForce = new Vector3(netForceSimd.x, netForceSimd.y, netForceSimd.z);
                 Vector3 netTorque = new Vector3(netTorqueSimd.x, netTorqueSimd.y, netTorqueSimd.z);
