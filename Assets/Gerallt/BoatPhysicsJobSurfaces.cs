@@ -52,7 +52,7 @@ namespace Gerallt
             //               || Physics.Raycast(vw1, n1, rayDistance)
             //               || Physics.Raycast(vw2, n2, rayDistance);
             // return result;
-            return (vw0.y < waterLine) || (vw1.y < waterLine) || (vw2.y < waterLine);
+            return (vw0.y < waterLine) && (vw1.y < waterLine) && (vw2.y < waterLine);
         }
 
         public void Execute()
