@@ -13,6 +13,8 @@ using UnityEngine;
 using UnityStandardAssets.Water;
 using static Unity.Mathematics.math;
 using Unity.Mathematics;
+using UnityEditor;
+using UnityEngine.Jobs;
 using UnityEngine.Serialization;
 using float3 = Unity.Mathematics.float3;
 using float4 = Unity.Mathematics.float4;
@@ -59,7 +61,7 @@ public class Buoyancy : MonoBehaviour
     private float dragForce = 0;
     private Vector3 centerOfMass; // Center of mass of boat mesh.
     private float totalSurfaceArea; // Total surface area of boat mesh.
-    private float maxSurfaceArea;
+    public float maxSurfaceArea;
     
     private Task<PhysicsResult> singleTask;
     private List<PhysicsTask> physicsTaskList = new List<PhysicsTask>();
@@ -68,8 +70,8 @@ public class Buoyancy : MonoBehaviour
     private Task task3;
     private Task task4;
 
-    private int vertsLength;
-    private int normalsCount;
+    public int vertsLength;
+    public int normalsCount;
     private int QuarterSize => normalsCount / 4;
     private Vector3[] verts;
     private Vector3[] normals;
@@ -101,15 +103,15 @@ public class Buoyancy : MonoBehaviour
 
     private BoatPhysicsJob physicsJob;
     private JobHandle physicsJobHandle;
-    private NativeArray<float3> vertsSimd;
-    private NativeArray<float3> normalsSimd;
+    public NativeArray<float3> vertsSimd;
+    public NativeArray<float3> normalsSimd;
     private NativeArray<int> underwaterVertsIns;
     private NativeArray<float3> computedForces;
 
     private BoatPhysicsJobSurfaces physicsJobSurfaces;
     private JobHandle physicsJobHandleSurfaces;
-    private NativeArray<int> facesSimd;
-    private NativeArray<float> polygonAreasSimd;
+    public NativeArray<int> facesSimd;
+    public NativeArray<float> polygonAreasSimd;
     
     private NativeArray<int> underwaterVertsIns2;
     private NativeArray<float3> forces;
@@ -118,6 +120,12 @@ public class Buoyancy : MonoBehaviour
     private JobHandle physicsJobHandleParallel;
 
     // One big physics job that periodically runs without being bound to Update()
+    // private static bool isRunningParallelJob = false;
+    // public static BoatPhysicsJobSurfacesParallel physicsJobSurfacesParallel; // NEW
+    // public static JobHandle physicsJobHandleSurfacesParallel;
+    // public static bool bCalculateForcesSimdParallel2LateUpdate;
+    // private static TransformAccessArray? transformAccessArray; 
+    
     private static BoatPhysicsJobParallel2 physicsJobParallel2;
     private static JobHandle physicsJobHandleParallel2;
     private NativeArray<float3> positions; // positions of all boats 
@@ -211,7 +219,8 @@ public class Buoyancy : MonoBehaviour
         
         //CalculateForces(); // Slightly more optimised original ComputeForces
         //CalculateForcesOnSurface(); // Calculates forces proportional to the boats surface area 
-        CalculateForcesOnSurfaceSIMD();
+        //CalculateForcesOnSurfaceSIMD();
+        //CalculateForcesOnSurfaceSIMDParallel(); // Called from Spawner's Update()
         //CalculateForcesTransform(); // Like the one above but applying forces directly to Transform trying to emulate what Unity Rigidbody does
         //CalculateForcesSIMD(); // Using Unity.Mathematics optimisations to vector math and running this in a single Unity Job every frame update
         //CalculateForcesSimdParallel(); // Computing forces using Parallel Unity Job  
@@ -667,7 +676,7 @@ public class Buoyancy : MonoBehaviour
 
         physicsJobHandleSurfaces = physicsJobSurfaces.Schedule(); // SIMD Calculate Forces on Surfaces
     }
-    
+
     private void CalculateForcesTransform()
     {
         dt = Time.deltaTime;
