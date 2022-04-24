@@ -78,7 +78,8 @@ namespace Gerallt
             //while (isRunning)
             {
                 //dt = GetDeltaTime(); // Custom delta time test
-
+                //dt = 0.01f;
+                
                 // Calculate Forces for Buoyancy
                 Quaternion transformRotation = boatTransformAccess.rotation;
                 Vector3 worldPosition = boatTransformAccess.position;

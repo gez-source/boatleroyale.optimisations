@@ -201,6 +201,16 @@ public class Spawner : MonoBehaviour
 	
 	private void LateUpdate()
 	{
+		// TransformAccessArray arr = transformAccessArray.Value;
+		//
+		// for (int i = 0; i < count; i++)
+		// {
+		// 	Transform t = arr[i];
+		//
+		// 	SpawnedObjects[i].transform.position = t.position;
+		// 	SpawnedObjects[i].transform.rotation = t.rotation;
+		// }
+		
 		if (bCalculateForcesSimdParallel2LateUpdate)
 		{
 			physicsJobHandleSurfacesParallel.Complete(); // SIMD Calculate Forces SIMD parallelised
