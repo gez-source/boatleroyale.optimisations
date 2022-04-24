@@ -102,13 +102,15 @@ namespace Gerallt
                         float3 vertPos = vertsSimd[index];
                         float3 vertWorldPos = worldPositionSimd + mul(transformRotationSimd, vertPos);
                         float waterDepth = (1.0f + waterLineHack) - vertWorldPos.y;
-
+                        //if(waterDepth > 1.0f + waterLineHack) waterDepth = 1.0f + waterLineHack;
+                        
                         if (vertWorldPos.y < waterLineHack)
                         {
                             Vector3 normal = normalsSimd[index];
 
                             if (dontCullTopNormals || Vector3.Dot((transformRotation * normal), Vector3.down) > cullAngle)
                             {
+                                //float3 forceAmount = (transformRotation * (-normal)) * (forceMagnitude);
                                 float3 forceAmount = (transformRotation * (-normal)) * (forceMagnitude * (waterDepth * waterDepthScalar));
                                 float3 forcePosition = vertWorldPos;
 
