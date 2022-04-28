@@ -39,6 +39,7 @@ public class Buoyancy : MonoBehaviour
     Vector3 worldVertPos;
 
     // Gerallt
+    public Algorithm algorithmType = Algorithm.OriginalCalculateForces;
     public static bool DestroyFallenBoats;
 
     private Rigidbody rb;
@@ -140,6 +141,21 @@ public class Buoyancy : MonoBehaviour
     private Vector3 inertia; // Inertia of the current boat.
     private Vector3 inertiaInverse; // Inverse inertia of the current boat.
     
+    public enum Algorithm
+    {
+        OriginalCalculateForces,
+        CalculateForcesOnSurface,
+        CalculateForcesOnSurfaceSIMD,
+        CalculateForcesOnSurfaceSIMDParallel,
+        CalculateForcesTransform,
+        CalculateForcesSIMD,
+        CalculateForcesSimdParallel,
+        CalculateForcesSimdParallel2,
+        CalculateForcesSync,
+        CalculateForcesThreaded,
+        NotSet
+    }
+    
     private void Awake()
     {
         boatCount++;
@@ -216,18 +232,41 @@ public class Buoyancy : MonoBehaviour
     void Update()
     {
         dt = Time.deltaTime;
-        
-        //CalculateForces(); // Slightly more optimised original ComputeForces
-        //CalculateForcesOnSurface(); // Calculates forces proportional to the boats surface area 
-        //CalculateForcesOnSurfaceSIMD();
-        //CalculateForcesOnSurfaceSIMDParallel(); // Called from Spawner's Update()
-        //CalculateForcesTransform(); // Like the one above but applying forces directly to Transform trying to emulate what Unity Rigidbody does
-        //CalculateForcesSIMD(); // Using Unity.Mathematics optimisations to vector math and running this in a single Unity Job every frame update
-        //CalculateForcesSimdParallel(); // Computing forces using Parallel Unity Job  
-        //CalculateForcesSimdParallel2(); // Computing forces using Parallel Unity Job, but applying forces directly to Transform
+
+        switch (algorithmType)
+        {
+            case Algorithm.OriginalCalculateForces:
+                CalculateForces(); // Slightly more optimised original ComputeForces
+                break;
+            case Algorithm.CalculateForcesOnSurface:
+                CalculateForcesOnSurface(); // Calculates forces proportional to the boats surface area 
+                break;
+            case Algorithm.CalculateForcesOnSurfaceSIMD:
+                CalculateForcesOnSurfaceSIMD(); // SIMD optimised version of calculating forces proportional to the boats surface area 
+                break;
+            case Algorithm.CalculateForcesOnSurfaceSIMDParallel:
+                //CalculateForcesOnSurfaceSIMDParallel(); // Called from Spawner's Update()
+                break;
+            case Algorithm.CalculateForcesTransform:
+                CalculateForcesTransform(); // Like the one above but applying forces directly to Transform trying to emulate what Unity Rigidbody does
+                break;
+            case Algorithm.CalculateForcesSIMD:
+                CalculateForcesSIMD(); // Using Unity.Mathematics optimisations to vector math and running this in a single Unity Job every frame update
+                break;
+            case Algorithm.CalculateForcesSimdParallel:
+                CalculateForcesSimdParallel(); // Computing forces using Parallel Unity Job  
+                break;
+            case Algorithm.CalculateForcesSimdParallel2:
+                CalculateForcesSimdParallel2(); // Computing forces using Parallel Unity Job, but applying forces directly to Transform
+                break;
+            case Algorithm.CalculateForcesSync:
+                CalculateForcesSync(); // CalcualteForces() but running in a synchronous C# Task and sending updates to rigidbody by a queue.
+                break;
+            case Algorithm.CalculateForcesThreaded:
+                CalculateForcesThreaded(); // CalcualteForces() but running in a separate C# Thread and sending updates to rigidbody by a queue.
+                break;
+        }
         //CalculateForcesBetter(); // Not much different to CalculateForces()
-        //CalculateForcesSync(); // CalcualteForces() but running in a synchronous C# Task and sending updates to rigidbody by a queue.
-        //CalculateForcesThreaded(); // CalcualteForces() but running in a separate C# Thread and sending updates to rigidbody by a queue.
     }
 
     private void FixedUpdate()
